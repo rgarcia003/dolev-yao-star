@@ -101,7 +101,7 @@ val parse_valid_serialize_session_st_lemma : i:nat -> p:principal -> si:nat -> v
 /// properties except simple confidentiality. Thus, this is a key element when modeling protocols
 /// and properties.
 (** Invariant on pricipals' states; carries application-specific integrity and trace-based properties. *)
-let session_st_inv i p si vi st =
+let session_st_inv i p si vi st: prop =
     A.is_msg signal_global_usage i st (readers [V p si vi]) /\
     (match parse_session_st st with
      | Success s -> valid_session i p si vi s

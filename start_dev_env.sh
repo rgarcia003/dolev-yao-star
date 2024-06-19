@@ -19,7 +19,9 @@ if [ ! -x "$(command -v docker)" ]; then
 fi
 
 # Initialize variables for docker call
-docker_image="foa3ucuvi85/fstar-ocaml-emacs:3.5-b8b1265a"
+#docker_image="foa3ucuvi85/fstar-ocaml-emacs:3.5-b8b1265a"
+# docker_image="foa3ucuvi85/fstar-ocaml-emacs:3.7-master-71facac0"
+docker_image="foa3ucuvi85/fstar-ocaml-emacs:3.7-master-46b9698a"
 dy_home_host="${DIR}"
 dy_home_container="/home/build/dolev-yao-star"
 

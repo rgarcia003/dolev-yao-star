@@ -86,56 +86,42 @@ let key_synch_attacker () =
   let (idx_msg1, idx_sess_a) = initiator_send_msg_1 alice mallory in
   let t7 = global_timestamp () in
   let (|t8,w_msg1|) = receive_i idx_msg1 mallory in
-  (match split w_msg1 with
-  | Success (ttag,rest) ->
-    (match split rest with
-    | Success (ta,gx) ->
-      let gx: pub_bytes t8 = gx in
-      let str_m : pub_bytes t8 = pub_bytes_later 0 t8 (string_to_pub_bytes (mallory)) in
-      let w_msg1':pub_bytes t8 = concat ttag (concat #t8 str_m gx) in
+  attacker_only_knows_publishable_values (pki isodh) w_msg1;
+  match parse_msg_pub #t8 w_msg1 with
+  | Success (Msg1 alice gx) -> begin
+      let msg1' = Msg1 mallory gx in
+      let w_msg1' = serialize_msg_pub t8 msg1' in
       let idx_msg1' = send #t8 mallory bob w_msg1' in
       let (idx_msg2, idx_sess_b) = responder_send_msg_2 bob idx_msg1' in
       let t9 = global_timestamp () in
       let (|_,w_msg2|) = receive_i idx_msg2 mallory in
-      let w_msg2: pub_bytes t9 = w_msg2 in
-      (match split w_msg2 with 
-      | Success (ttag,rest) ->
-	(match split rest with 
-	| Success (tb,gysg) ->
-	  (match split gysg with 
-	  | Success (gy,_) ->
-	    let skm :pub_bytes t9 = pub_bytes_later t5 t9 skm in
-	    let gy: pub_bytes t9 = gy in
-	    let gx: pub_bytes t9 = pub_bytes_later t8 t9 gx in
-	    let str_m : pub_bytes t9 = pub_bytes_later t8 t9 str_m in
-	    let str_a : pub_bytes t9 =
-	      pub_bytes_later 0 t9 (string_to_pub_bytes (alice)) in
-	    let sv' : pub_bytes t9 = concat ttag (concat str_a (concat gx gy)) in
-	    let (| t10, n_sig |) = pub_rand_gen (nonce_usage "SIG_NONCE") in
-	    let sg' : pub_bytes t10 = sign #t10 skm n_sig sv' in
-	    let w_msg2':pub_bytes t10 = concat #t10 ttag (concat #t10 str_m (concat #t10 gy sg')) in
-	    let idx_msg2' = send mallory alice w_msg2' in
-	    let idx_msg3 = initiator_send_msg_3 alice idx_sess_a idx_msg2' in
-	    let (|_,w_msg3|) = receive_i idx_msg3 mallory in
-	    (match split w_msg3 with 
-	    | Success (ttag, rest) ->
-	      let t10 = global_timestamp () in
-	      let str_b : pub_bytes t10 = pub_bytes_later 0 t10 (string_to_pub_bytes (bob)) in
-	      let gy: pub_bytes t10 = pub_bytes_later t9 t10 gy in
-	      let gx: pub_bytes t10 = pub_bytes_later t9 t10 gx in
-	      let sv': pub_bytes t10 = concat ttag (concat str_b (concat gx gy)) in
-	      let skm :pub_bytes t10 = pub_bytes_later t5 t10 skm in
-   	      let (| t10, n_sig |) = pub_rand_gen (nonce_usage "SIG_NONCE") in
+      match parse_msg_pub #t9 w_msg2 with
+      | Success (Msg2 b gy sg) -> begin
+          attacker_only_knows_publishable_values (pki isodh) gx;
+          attacker_only_knows_publishable_values (pki isodh) gy;
+          let sv' = sigval_pub_msg2 #t9 alice gx gy in
+          let (| t10, n_sig |) = pub_rand_gen (nonce_usage "SIG_NONCE") in
+	  let sg' = sign #t10 skm n_sig sv' in
+          let msg2' = Msg2 mallory gy sg' <: iso_msg_pub t10 in
+          let w_msg2' = serialize_msg_pub t10 msg2' in
+          let idx_msg2' = send mallory alice w_msg2' in
+	  let idx_msg3 = initiator_send_msg_3 alice idx_sess_a idx_msg2' in
+	  let (|_,w_msg3|) = receive_i idx_msg3 mallory in
+          match parse_msg_pub w_msg3 with
+          | Success (Msg3 _ ) -> begin
+              let sv' = sigval_pub_msg3 #t10 b gx gy in
+              let (| t10, n_sig |) = pub_rand_gen (nonce_usage "SIG_NONCE") in
 	      let sg':pub_bytes t10  = sign #t10 skm n_sig sv' in
-	      let w_msg3':pub_bytes t10 = concat #t10 ttag sg' in
-	      let idx_msg3' = send mallory bob w_msg3' in
+              let msg3' = Msg3 sg' in
+              let w_msg3' = serialize_msg_pub t10 msg3' in
+              let idx_msg3' = send mallory bob w_msg3' in
 	      responder_accept_msg_3 bob idx_sess_b idx_msg3'
-	    | _ -> error "w_msg3 split error")
-	  | _ -> error "gysg split error")
-	| _ -> error "rest2 split error")
-      | _ -> error "w_msg2 split error")
-    | _ -> error "rest1 split error")
-  | _ -> error "w_msg1 split error")
+            end
+          | _ -> error "not a msg3 form alice"
+        end
+      | _ -> error "not a msg2 from bob"
+    end
+  | _ -> error "not a msg1 from alice"
 #pop-options
 
 

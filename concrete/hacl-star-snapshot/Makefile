@@ -123,16 +123,16 @@ TAC = $(shell which tac >/dev/null 2>&1 && echo "tac" || echo "tail -r")
 ALL_CMX_FILES = $(subst ml/Lib_Buffer.cmx,ml/Lib_Memzero0.cmx ml/Lib_Buffer.cmx,$(patsubst %.ml,%.cmx,$(shell echo $(ALL_ML_FILES) | $(TAC))))
 
 ifeq ($(OS),Windows_NT)
-  export OCAMLPATH := $(FSTAR_HOME)/bin;$(OCAMLPATH)
+  export OCAMLPATH := $(FSTAR_HOME)/lib;$(OCAMLPATH)
 else
-  export OCAMLPATH := $(FSTAR_HOME)/bin:$(OCAMLPATH)
+  export OCAMLPATH := $(FSTAR_HOME)/lib:$(OCAMLPATH)
 endif
 
-OCAMLOPT = ocamlfind opt -package fstarlib -linkpkg -g -I ml -w -8-20-26
-OCAMLSHARED = ocamlfind opt -shared -package fstar-tactics-lib -g -I ml -w -8-20-26
+OCAMLOPT = ocamlfind opt -package fstar.lib -linkpkg -g -I ml -w -8-20-26
+OCAMLSHARED = ocamlfind opt -shared -package fstar.lib -g -I ml -w -8-20-26
 
 ml/libhaclml.cmxa: $(filter-out ml/Meta_Interface.cmx,$(ALL_CMX_FILES))
-	ocamlfind opt -a -o $@ -package fstarlib -g -I ml $^
+	ocamlfind opt -a -o $@ -package fstar.lib -g -I ml $^
 
 .PRECIOUS: %.ml
 %.cmx: %.ml

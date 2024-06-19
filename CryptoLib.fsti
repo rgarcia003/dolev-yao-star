@@ -5,10 +5,20 @@ module CryptoLib
 
 open SecrecyLabels
 
+/// .. _cryptolib_usages:
+///
 /// Usages for Secrets
 /// ------------------
 ///
-/// TODO DOC what are usages, why do we use them, what is their semantic w.r.t. to proofs? Why the strings?
+/// Usages ensure that honest parties only use secrets for their intended purpose.  This behaviour
+/// is in line with common best practices to use cryptographic key material for only one purpose.
+///
+/// Our usages are more fine-grained than just looking at the cryptographic primitive: the string
+/// value on each ``usage`` is intended to be a description of the purpose of a secret, e.g.,
+/// "NSL.nonce" for a nonce in the NSL protocol.
+///
+/// Correct usage of key material is enforced by the labeled APIs, specifically by the ``is_valid``
+/// predicate in :doc:`LabeledCryptoAPI`.
 val usage: t:Type0{hasEq t}
 val nonce_usage: string -> usage
 val guid_usage: string -> usage
@@ -42,9 +52,14 @@ val mac_usage_injective: s1:string -> s2:string ->
 
 /// Abstract Bytestrings & literals
 /// -------------------------------
+type nat_lbytes (sz:nat) = n:nat{n < pow2 (8 `op_Multiply` sz)}
+
 val bytes: t:Type0{hasEq t}
-val empty: bytes
+
 val len: bytes -> nat
+
+val empty: bytes
+val len_empty: unit -> Lemma(len empty == 0)
 
 let bind #a #b (f:result a) (g:a -> result b) : result b =
     match f with
@@ -65,11 +80,24 @@ val term_depth:bytes -> nat
 
 /// Literals to/from Bytestrings
 /// ----------------------------
+
 val string_to_bytes: string -> bytes
 val bytes_to_string: bytes -> result string
 val string_to_bytes_lemma (s:string) :
   Lemma (bytes_to_string (string_to_bytes s) == Success s)
         [SMTPat (bytes_to_string (string_to_bytes s))]
+val string_to_bytes_len (s:string) :
+  Lemma (len (string_to_bytes s) == String.strlen s)
+
+(**
+  Given a byte b that can be converted to a string s, it holds true that b == string_to_bytes s.
+*)
+val bytes_to_string_lemma: (b:bytes) ->
+  Lemma (ensures (
+    match bytes_to_string b with
+    | Success s -> b == string_to_bytes s
+    | _ -> True
+  ))
 
 val nat_to_bytes: len:nat -> value:nat -> bytes
 val bytes_to_nat: bytes -> result nat
@@ -77,12 +105,56 @@ val nat_to_bytes_lemma (len:nat) (n:nat) :
   Lemma (bytes_to_nat (nat_to_bytes len n) == Success n)
         [SMTPat (bytes_to_nat (nat_to_bytes len n))]
 
+val bytes_to_nat_lemma: (len:nat) -> (b:bytes) ->
+  Lemma (
+    match bytes_to_nat b with
+    | Success n -> b == nat_to_bytes len n
+    | _ -> True
+  )
+
+(**
+  Serializing a natural number into a byte, and then parsing the result with [bytes_to_string]
+  results in an Error.
+*)
+val bytes_to_string_of_nat_to_bytes_error: (n:nat) ->
+  Lemma (ensures (
+    forall (len:nat). Error? (bytes_to_string (nat_to_bytes len n))
+  ))
+
+
 let bytestring = FStar.Seq.seq FStar.UInt8.t
 val bytestring_to_bytes: bytestring -> bytes
 val bytes_to_bytestring: bytes -> result bytestring
 val bytestring_to_bytes_lemma (b:bytestring) :
   Lemma (bytes_to_bytestring (bytestring_to_bytes b) == Success b)
         [SMTPat (bytes_to_bytestring (bytestring_to_bytes b))]
+
+val nat_lbytes_to_bytes: sz:nat -> nat_lbytes sz -> b:bytes{len b == sz}
+val bytes_to_nat_lbytes: b:bytes -> result (nat_lbytes (len b))
+val nat_lbytes_to_bytes_to_nat_lbytes: sz:nat -> x:nat_lbytes sz -> Lemma
+  (bytes_to_nat_lbytes (nat_lbytes_to_bytes sz x) == Success x)
+val bytes_to_nat_lbytes_to_bytes: b:bytes -> Lemma (
+  match bytes_to_nat_lbytes b with
+  | Success x -> b == nat_lbytes_to_bytes (len b) x
+  | Error _ -> True
+)
+
+val bool_to_bytes: bool -> bytes
+val bytes_to_bool: bytes -> result bool
+val bool_to_bytes_lemma (i:bool) :
+  Lemma (bytes_to_bool (bool_to_bytes i) == Success i)
+        [SMTPat (bytes_to_bool (bool_to_bytes i))]
+
+(**
+  Given a byte b that can be converted to a bool i, it holds true that b == bool_to_bytes i.
+*)
+val bytes_to_bool_lemma: (b:bytes) ->
+  Lemma (ensures (
+    match bytes_to_bool b with
+    | Success i -> b == bool_to_bytes i
+    | _ -> True
+  ))
+
 
 /// Random numbers: ghost values
 /// ----------------------------
@@ -126,13 +198,45 @@ val concat_split_lemma: b:bytes ->
   Lemma (match split b with
 	 | Success (b1,b2) -> b == concat b1 b2 /\ (term_depth b1 < term_depth b) /\ (term_depth b2 < term_depth b)
 	 | Error _ -> True)
+         [SMTPat (split b); SMTPat (term_depth b)]
+
+val split_based_on_split_len_prefixed_lemma: b:bytes -> Lemma (split b == split_len_prefixed 4 b)
+
+(**
+    Forall bytes b1 and b2, and all strings s it holds true that [concat b1 b2] is not equal to
+    [string_to_bytes s].
+*)
+val concat_not_equal_string_to_bytes_lemma: unit ->
+  Lemma (ensures (
+    forall (b1:bytes) (b2:bytes) (s:string). concat b1 b2 <> (string_to_bytes s)
+  ))
+
+
+val concat_uniqueness_lemma: unit ->
+  Lemma (ensures (
+    forall (a1 a2 b1 b2: bytes). (concat a1 a2) = (concat b1 b2) ==> a1 = b1 /\ a2 = b2
+  ))
+
 
 /// Concatenation/Splitting without any length information
 val raw_concat: b1:bytes -> b2:bytes -> bytes
+val len_raw_concat: b1:bytes -> b2:bytes -> Lemma (len (raw_concat b1 b2) == len b1 + len b2)
+
 val split_at: first_part_len:nat -> bytes -> result (bytes * bytes)
+val len_split_at: first_part_len:nat -> b:bytes -> Lemma (
+  match split_at first_part_len b with
+  | Success (b1, b2) -> len b1 == first_part_len /\ first_part_len + len b2 == len b
+  | Error _ -> True
+)
+
 val split_at_raw_concat_lemma: b1:bytes -> b2:bytes ->
   Lemma (split_at (len b1) (raw_concat b1 b2) == Success (b1,b2))
         [SMTPat (split_at (len b1) (raw_concat b1 b2))]
+val raw_concat_split_at_lemma: first_part_len:nat -> b:bytes -> Lemma (
+  match split_at first_part_len b with
+  | Success (b1, b2) -> b == raw_concat b1 b2
+  | Error _ -> True
+)
 
 
 /// Public Key Encryption
@@ -160,6 +264,16 @@ val pke_dec_lemma: sk:bytes -> cip:bytes ->
         [SMTPat (pke_dec sk cip)]
 
 
+(**
+    A PKE ciphertext is always different from the concatenation of two terms.
+*)
+val concat_not_equal_pke_enc_lemma: unit ->
+  Lemma (ensures (
+    forall (c1 c2 pke_key pke_rand pke_plaintext:bytes).
+      ~ (pke_enc pke_key pke_rand pke_plaintext == concat c1 c2)
+  ))
+
+
 /// AEAD Encryption
 /// ---------------
 val aead_enc: key:bytes -> iv:bytes -> msg:bytes -> ad:bytes -> bytes
@@ -178,6 +292,28 @@ val inv_aead_enc: bytes -> GTot (result (bytes * bytes * bytes * bytes))
 val inv_aead_enc_inj_lemma (c1 c2:bytes) : Lemma (inv_aead_enc c1 == inv_aead_enc c2 /\ Success? (inv_aead_enc c1) ==> c1 == c2)
 val inv_aead_enc_lemma: c:bytes ->
   Lemma (match inv_aead_enc c with | Success (k, iv, p, ad) -> c == aead_enc k iv p ad /\ term_depth p < term_depth c | Error e -> True)
+
+(**
+   If two AEAD ciphertexts are equal, then their plaintexts are equal.
+*)
+val aead_uniqueness_lemma: unit ->
+  Lemma (ensures (
+    forall k1 iv1 ad1 msg1 k2 iv2 ad2 msg2.
+      ((aead_enc k1 iv1 msg1 ad1)  == (aead_enc k2 iv2 msg2 ad2)) ==> msg1 == msg2
+  ))
+
+val concat_not_equal_aead_enc_lemma: unit ->
+  Lemma (ensures (
+    forall (c1 c2 key iv plaintext ad:bytes).
+      ~ (aead_enc key iv plaintext ad == concat c1 c2)
+  ))
+
+val pke_enc_not_equal_aead_enc_lemma: unit ->
+  Lemma (ensures (
+    forall (pke_key pke_rand pke_plaintext key iv plaintext ad:bytes).
+      ~ (aead_enc key iv plaintext ad == pke_enc pke_key pke_rand pke_plaintext)
+  ))
+
 
 /// Signatures
 /// ----------
@@ -259,4 +395,3 @@ val dh_inj_lemma (sk1 sk2 pk1 pk2:bytes) : // TODO this lemma is trivially true 
   Lemma (sk1 == sk2 /\ pk1 == pk2 ==> dh sk1 pk1 == dh sk2 pk2)
 val dh_shared_secret_lemma: x:bytes -> y:bytes ->
   Lemma ((dh x (dh_pk y)) == (dh y (dh_pk x)))
-

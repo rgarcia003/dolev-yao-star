@@ -2,6 +2,9 @@
 /// ===============
 module ISODH.Sessions
 
+open Comparse
+open ComparseGlue
+
 open SecrecyLabels
 open GlobalRuntimeLib
 open CryptoLib
@@ -22,11 +25,13 @@ let eph_priv_key i p si vi = A.dh_private_key isodh_global_usage i (readers [V p
 
 (* Session States *)
 
-noeq type session_st =
-  |InitiatorSentMsg1: b:principal -> x:bytes -> session_st
-  |ResponderSentMsg2: a:principal -> gx:bytes -> gy:bytes -> k:bytes -> session_st
-  |InitiatorSentMsg3: b:principal -> gx:bytes -> gy:bytes -> k:bytes -> session_st
-  |ResponderReceivedMsg3: a:principal -> gx:bytes -> gy:bytes -> k:bytes -> session_st
+noeq type session_st_generic (bytes:Type0) {|bytes_like bytes|} =
+  |InitiatorSentMsg1: b:principal -> x:bytes -> session_st_generic bytes
+  |ResponderSentMsg2: a:principal -> gx:bytes -> gy:bytes -> k:bytes -> session_st_generic bytes
+  |InitiatorSentMsg3: b:principal -> gx:bytes -> gy:bytes -> k:bytes -> session_st_generic bytes
+  |ResponderReceivedMsg3: a:principal -> gx:bytes -> gy:bytes -> k:bytes -> session_st_generic bytes
+
+type session_st = session_st_generic bytes
 
 val parse_session_st: bytes -> result session_st
 
@@ -66,7 +71,7 @@ val parse_valid_serialize_session_st_lemma : i:nat -> p:principal -> si:nat -> v
 	  (ensures (Success ss == parse_session_st (serialize_valid_session_st i p si vi ss)))
 	  [SMTPat (parse_session_st (serialize_valid_session_st i p si vi ss))]
 
-let epred i s e =
+let epred i s e: prop =
     match e with
     | ("Initiate",[ta;tb;gx]) -> True
     | ("Respond",[ta;tb;gx;gy;y]) ->
@@ -85,7 +90,7 @@ let epred i s e =
 	| Success (a), Success (b) -> A.corrupt_id i (P a) \/ (is_dh_shared_key i k a s /\ did_event_occur_before i a (finishI a b gx gy k))
        | _, _ -> False )
     | _ -> False
-let session_st_inv i p si vi st =
+let session_st_inv i p si vi st: prop =
     A.is_msg isodh_global_usage i st (readers [V p si vi]) /\
     (match parse_session_st st with
      | Success s -> valid_session i p si vi s

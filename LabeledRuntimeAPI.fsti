@@ -1,5 +1,21 @@
 /// LabeledRuntimeAPI
 /// ==================
+///
+/// This module provides APIs to interact with the global state, i.e., trace, allowing to set/get
+/// local state, generate nonces, send and receive messages etc.  It also provides an API to trigger
+/// protocol-specific events, which are typically used to make formulation and proofs of security
+/// properties more convenient.
+///
+/// A primer on global state, trace, and trace invariants
+/// -----------------------------------------------------
+///
+/// The stateful APIs here all enforce certain invariants on the global trace. In addition to some
+/// generic invariants, e.g., enforcing labeling and usage rules, these invariants are
+/// protocol-specific and are used to prove the desired security properties.  On a technical level,
+/// these protocol-specific trace invariants are the ``trace_preds`` declared below.  Each of the
+/// stateful APIs requires a concrete ``trace_preds`` as input and requires the global state to
+/// satisfy these preds (such a global state is called a *valid trace*) when calling the API, and
+/// similarly each API guarantees to leave the global state as a valid trace.
 module LabeledRuntimeAPI
 
 open SecrecyLabels
@@ -8,11 +24,16 @@ open CryptoEffect
 open GlobalRuntimeLib
 open LabeledCryptoAPI
 
-/// Application state and trace invariants
+/// .. _labeledruntimeapi_preds_definition:
+///
+/// Trace invariants
+/// ----------------
+///
+/// Container type for protocol-specific trace invariants.
 
 noeq type trace_preds (g:global_usage) = {
-  can_trigger_event: timestamp -> principal -> event -> Type0;
-  session_st_inv: trace_idx:timestamp -> principal -> session:nat -> version:nat -> bytes -> Type0;
+  can_trigger_event: timestamp -> principal -> event -> prop;
+  session_st_inv: trace_idx:timestamp -> principal -> session:nat -> version:nat -> bytes -> prop;
   session_st_inv_lemma: i:timestamp -> p:principal -> si:nat -> vi:nat -> st:bytes ->
                   Lemma (session_st_inv i p si vi st ==>
                          is_msg g i st (readers [V p si vi]));
@@ -21,17 +42,21 @@ noeq type trace_preds (g:global_usage) = {
                            session_st_inv j p si vi st)
 }
 
+/// Container type for protocol-specific trace invariants and secret usage rules. Protocol
+/// implementations have to define the contents of this container and pass it to all stateful APIs
+/// (as described above).
 noeq type preds = {
   global_usage: global_usage;
   trace_preds: trace_preds global_usage
 }
 
+/// TODO DOC
 let event_pred_at (pr:preds) n p e = pr.trace_preds.can_trigger_event n p e
 
 let event_pred (pr:preds) n p e =
     (exists i. later_than n i /\ event_pred_at pr i p e)
 
-let state_inv (pr:preds) (idx:timestamp) (prin:principal) (version_vec:version_vec) (st:state_vec) : Type0 =
+let state_inv (pr:preds) (idx:timestamp) (prin:principal) (version_vec:version_vec) (st:state_vec) : prop =
   (Seq.length version_vec = Seq.length st) /\
   (forall i. i < Seq.length version_vec ==> pr.trace_preds.session_st_inv idx prin i version_vec.[i] st.[i])
 
@@ -45,9 +70,17 @@ let state_inv_later (pr:preds) (i:timestamp) (j:timestamp) (p:principal) (vv:ver
           [SMTPat (state_inv pr i p vv st); SMTPat (later_than j i)] = ()
 
 
-/// Stateful application API
-/// ------------------------
-(* Valid trace definition *)
+/// Definition of a valid trace
+/// ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+///
+/// This predicate is the combination of all our trace invariants. All parties, including the
+/// attacker, must preserve this predicate (see :doc:`AttackerAPI` for attacker typeability, i.e., a
+/// proof that this predicate does not restrict the attacker in a way which would violate our
+/// attacker model).
+///
+/// The exact details of this predicate are hidden from API clients, we instead expose the relevant
+/// facts as lemmas.
+
 val valid_trace: preds -> trace -> Type0
 
 val valid_trace_event_lemma: pr:preds -> t:trace -> i:timestamp -> s:principal -> e:event ->
@@ -60,7 +93,17 @@ val valid_trace_respects_state_inv: (pr:preds) -> (trace:trace) -> (i:timestamp)
         (ensures (state_inv pr i p v s))
         [SMTPat (valid_trace pr trace); SMTPat (state_was_set_at i p v s)]
 
-/// An effect abbreviation for CRYPTO functions that preserve trace validity
+
+/// Stateful application API
+/// ------------------------
+///
+/// The LCrypto effect
+/// ~~~~~~~~~~~~~~~~~~
+///
+/// An effect abbreviation for CRYPTO functions that preserve trace validity, which is basically a shorter
+/// way of writing :code:`... Crypto a (requires fun t0 -> valid_trace pr t0) (ensures fun _ _ t1 -> valid_trace pr t1)`
+///
+/// All stateful APIs and their client functions (i.e., protocol implementations) will usually use this effect.
 
 effect LCRYPTO (a:Type) (pr:preds) (pre:pre_t) (post:(t0:trace{pre t0} -> result a -> trace -> Type0)) =
   CRYPTO a (fun p s0 ->
@@ -74,6 +117,11 @@ effect LCrypto (a:Type) (pr:preds) (pre:pre_t) (post:(t0:trace{pre t0} -> a -> t
     (Error? r ==> True) /\
     (Success? r ==> post s0 (Success?.v r) s1))
 
+/// Nonce Generation
+/// ~~~~~~~~~~~~~~~~
+///
+/// Generate a fresh nonce with the exact label and usage. Returns the timestamp at which the nonce
+/// creation was recorded in the trace, as well as the actual nonce.
 val rand_gen: #pr:preds -> l:label -> u:usage ->
   LCrypto (i:timestamp & secret pr.global_usage i l u) pr
     (requires (fun t0 -> True))
@@ -82,12 +130,24 @@ val rand_gen: #pr:preds -> l:label -> u:usage ->
         trace_len t1 = trace_len t0 + 1 /\
         was_rand_generated_at (trace_len t0) s l u))
 
+/// Protocol Events
+/// ~~~~~~~~~~~~~~~
 val trigger_event: #pr:preds -> p:principal -> ev:event -> LCrypto unit pr
     (requires (fun t0 -> event_pred_at pr (trace_len t0) p ev))
     (ensures (fun t0 (s) t1 ->
          trace_len t1 = trace_len t0 + 1 /\
          did_event_occur_at (trace_len t0) p ev))
 
+
+/// Send and receive messages
+/// ~~~~~~~~~~~~~~~~~~~~~~~~~
+///
+/// Returns the timestamp at which the message sending was recorded in the trace. Note how we
+/// require the sent message to be labeled such that the label :ref:`can flow to public
+/// <labeledcryptoapi_labeling_description>`.  This enforces our labeling rules: The attacker can of
+/// course learn any message sent over the network; we capture this by requiring the label on any
+/// sent message to flow to public, i.e., the sender has to prove that the attacker will not learn
+/// anything from this message which was previously labeled as a secret.
 val send: #pr:preds -> #i:timestamp -> sender:principal -> receiver:principal ->
           message:msg pr.global_usage i public -> LCrypto timestamp pr
     (requires (fun t0 -> i <= trace_len t0))
@@ -96,6 +156,9 @@ val send: #pr:preds -> #i:timestamp -> sender:principal -> receiver:principal ->
           trace_len t1 = trace_len t0 + 1 /\
           was_message_sent_at (trace_len t0) sender receiver message))
 
+/// Returns the current trace length, the sender of the message as recorded in the trace, and the
+/// actual message. Note that the sender value here is NOT authenticated, i.e., the actual creator
+/// of the received message may be any party, including the attacker.
 val receive_i: #pr:preds -> index_of_send_event:timestamp -> receiver:principal ->
           LCrypto (now:timestamp & sender:principal & msg pr.global_usage now public) pr
     (requires (fun t0 -> True))
@@ -103,6 +166,13 @@ val receive_i: #pr:preds -> index_of_send_event:timestamp -> receiver:principal 
           now = trace_len t0 /\
           index_of_send_event < trace_len t0 /\
           (exists sender receiver. was_message_sent_at index_of_send_event sender receiver t)))
+
+
+/// Modify and retrieve local state
+/// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+///
+/// These first two functions always operate on the full local state and are enough to model any
+/// operations on local states (i.e., the additional session API below is not strictly needed).
 
 val set_state: #pr:preds -> p:principal -> v:version_vec -> s:state_vec -> LCrypto unit pr
     (requires (fun t0 -> Seq.length v == Seq.length s /\
@@ -118,7 +188,19 @@ val get_last_state: #pr:preds -> p:principal ->
               now = trace_len t0 /\
               state_inv pr now p v s))
 
-(* A more useful session API for accessing individual sessions *)
+/// Session-based API for local state
+/// .................................
+///
+/// A common pattern in many protocol implementations using the above local state APIs is to get the
+/// current local state, extract a particular session from it (see :ref:`SecrecyLabels
+/// <secrecylabels_id_def>` for details on what a "session" is in this context), modify that
+/// session, construct a new local state, with the only change being that one session, and set the
+/// whole local state again.  This a) requires quite a bit of boilerplate code to extract and
+/// re-insert the one session of interest, and b) results in a heavier proof burden: Validity of the
+/// whole local state (instead of just the one changed session) must be proven.
+///
+/// Hence, the following session-based API can be used to get/set individual sessions within the
+/// local state.
 // TODO This API does not support proof of liveness (i.e., proving that a protocol run can finish)
 val new_session_number:
   #pr:preds ->  p:principal ->  LCrypto nat pr
@@ -151,6 +233,6 @@ val find_session:
   (requires fun t0 -> trace_len t0 == i)
   (ensures fun t0 r t1 -> t1 == t0 /\
                        (match r with
-                        | None -> True
+                        | None -> True // TODO maybe expose non-existence of such a session?
                         | Some (|si,vi,st|) -> f si vi st /\ // TODO maybe expose relation to get_session
                                               pr.trace_preds.session_st_inv i p si vi st))

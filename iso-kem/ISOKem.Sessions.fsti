@@ -70,7 +70,7 @@ val parse_valid_serialize_session_st_lemma : i:nat -> p:principal -> si:nat -> v
 
 
 
-let epred i s e =
+let epred i s e: prop =
     match e with
     | ("Initiate",[ta;tb;gx]) -> True
     | ("Respond",[ta;tb;gx;gy;k]) ->
@@ -87,7 +87,7 @@ let epred i s e =
 	| Success (a), Success (b) -> A.corrupt_id i (P a) \/ did_event_occur_before i a (finishI a b gx gy k)
        | _, _ -> False )
     | _ -> False
-let session_st_inv i p si vi st =
+let session_st_inv i p si vi st: prop =
     A.is_msg isokem_global_usage i st (readers [V p si vi]) /\
     (match parse_session_st st with
      | Success s -> valid_session i p si vi s

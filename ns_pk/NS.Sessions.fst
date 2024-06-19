@@ -104,13 +104,13 @@ let parse_serialize_valid_session_st_lemma i p si vi st =
 
 
 
-let session_st_inv i p si vi st =
+let session_st_inv i p si vi st: prop =
     A.is_msg ns_global_usage i st (readers [V p si vi]) /\
     (match parse_session_st st with
      | Success s -> valid_session i p si vi s
      | _ -> False)
 
-let epred idx s e = True
+let epred idx s e: prop = True
 
 let ns: R.preds = {
   R.global_usage = ns_global_usage;

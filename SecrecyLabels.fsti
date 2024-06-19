@@ -3,9 +3,11 @@
 
 module SecrecyLabels
 
+open Ord
+
 /// Some basic definitions needed later
 type timestamp = nat
-let later_than j i = i <= j
+let later_than (j:timestamp) (i:timestamp) = i <= j
 
 /// Helper types and functions
 type result (a:Type) =
@@ -17,6 +19,8 @@ let bind #a #b (f:result a) (g:a -> result b) : result b =
     | Success x -> g x
     | Error s -> Error s
 
+let (let?) = bind
+
 let return (x:'a) : result 'a = Success x
 let is_some2 x (a:'a) (b:'b) = x == Some (a,b)
 let is_some x (a:'a) = x == Some a
@@ -27,6 +31,8 @@ let is_succ x (a:'a) = x == Success a
 let op_String_Access #a b i = Seq.index #a b i
 let op_String_Assignment #a b i v = Seq.upd #a b i v
 
+/// .. _secrecylabels_id_def:
+///
 /// Session Identifiers
 /// -------------------
 type principal = string
@@ -95,24 +101,37 @@ val label:Type0
 /// A list of versions allowed to read a value
 val readers: list id -> label
 
+val readers_permutation: l1 : list id -> l2: list id -> 
+  Lemma
+    (requires is_permutation l1 l2)
+    (ensures readers l1 == readers l2)
+// WARNING: do not add the following SMTPats!
+//   (this heavily increases Z3 resources)
+//   [SMTPat (readers l1); SMTPat (readers l2)]
+
+val readers_permutation_two (i j : id)
+  : Lemma (readers [i; j] == readers [j; i])
+  [SMTPat (readers [i; j]); SMTPat (readers [j; i])]
+
 /// A public value is allowed to be read by everyone and can, e.g., be sent over an unsecured
 /// connection.
 val public: label
 
+/// Label for unreadable values TODO DOC: Is this correct? When is this useful?
+let private_label = readers []
+
 /// Label for combined values: Union of the "intended audiences".
 val join: label -> label -> label
+
+let joinAll (ls:list label) = List.Tot.Base.fold_left join private_label ls
+
+let join_opt l1 l2o = match l2o with | Some x -> join l1 x | None -> l1
 
 /// Label for combined values: Intersection of the "intended audiences".
 val meet: label -> label -> label
 
-/// Label for unreadable values
-let private_label = readers []
-let join_opt l1 l2o = match l2o with | Some x -> join l1 x | None -> l1
-
-val unversion: label -> label
-
-/// Check whether a given ``id`` is in the "intended audience" of a label.
-val can_read: id -> label -> Type0
+/// Check whether a given ``id`` is in the "intended audience" of a label. TODO DOC is this correct?
+val can_read: id -> label -> prop
 
 /// Properties of ``can_read`` and label constructors
 val can_read_readers_lemma: l:list id -> i:id -> Lemma (List.Tot.mem i l <==> i `can_read` readers l) [SMTPat (can_read i (readers l))]
@@ -128,7 +147,7 @@ val meet_is_equal : l1:label -> l2:label -> Lemma (meet l1 l2 == meet l2 l1) [SM
 /// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 noeq type corrupt_pred = {
-  corrupt_id: timestamp -> id -> Type0;
+  corrupt_id: timestamp -> id -> prop;
   corrupt_id_later: t1:timestamp -> t2:timestamp ->
                     Lemma (forall x. corrupt_id t1 x /\ later_than t2 t1 ==> corrupt_id t2 x);
 /// TODO DOC: Is the following correct?
@@ -140,13 +159,13 @@ noeq type corrupt_pred = {
                     Lemma(forall x y. (covers x y = true /\ corrupt_id ts y) ==> corrupt_id ts x)
 }
 
-let contains_corrupt_id (p:corrupt_pred) (ts:timestamp) (ps:list id) =
+let contains_corrupt_id (p:corrupt_pred) (ts:timestamp) (ps:list id): prop =
     (exists x. contains_id ps x /\ p.corrupt_id ts x)
 
 
 /// Flow relation between labels
 /// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-val can_flow_p: p:corrupt_pred -> ts:timestamp -> from:label -> to:label -> Type0
+val can_flow_p: p:corrupt_pred -> ts:timestamp -> from:label -> to:label -> prop
 
 /// Properties of ``can_flow_p``
 /// .............................
@@ -175,6 +194,10 @@ val flows_to_public_can_flow: p:corrupt_pred -> i:timestamp -> l1:label -> l2:la
 val flows_to_public_can_flow_forall: p:corrupt_pred  ->
   Lemma (forall i l1 l2. can_flow_p p i l1 public ==> can_flow_p p i l1 l2)
 
+val can_flow_principal: p:corrupt_pred -> i:timestamp -> pr:principal -> 
+    Lemma (forall si vi. can_flow_p p i (readers [P pr]) (readers [S pr si]) /\
+		    can_flow_p p i (readers [S pr si]) (readers [V pr si vi]))
+
 val can_flow_reflexive: p:corrupt_pred -> i:timestamp -> l:label -> Lemma (ensures (can_flow_p p i l l)) [SMTPat (can_flow_p p i l l)]
 val can_flow_from_join: p:corrupt_pred -> i:timestamp -> l1:label -> l2:label ->
   Lemma (can_flow_p p i (join l1 l2) l1 /\ can_flow_p p i (join l1 l2) l2)
@@ -192,6 +215,32 @@ val can_flow_to_join_forall: p:corrupt_pred -> i:timestamp ->
   Lemma (forall l1 l2 l3. can_flow_p p i l1 l2 /\ can_flow_p p i l1 l3 ==> can_flow_p p i l1 (join l2 l3))
 val can_flow_to_join_forall_trace_index: p:corrupt_pred  ->
   Lemma (forall i l1 l2 l3. can_flow_p p i l1 l2 /\ can_flow_p p i l1 l3 ==> can_flow_p p i l1 (join l2 l3))
+val can_flow_from_labels_to_join: p:corrupt_pred -> i:timestamp ->
+  Lemma (forall l1 l2 l3. can_flow_p p i l1 l2 ==> can_flow_p p i (join l1 l3) (join l2 l3))
+val can_flow_from_labels_to_join_principal: p:corrupt_pred -> i:timestamp -> pr:principal ->
+  Lemma (forall l sj vj. 
+	     can_flow_p p i (join l (readers [P pr])) (join l (readers [V pr sj vj])) /\
+	     can_flow_p p i (join l (readers [P pr])) (join l (readers [V pr sj vj])))
+
+(**
+   If a join label with two principals can flow to the readers label of a principal [prin], then one
+   of the two principals is [prin] (if the label does not flow to public).
+*)
+val can_flow_to_join_and_principal_and_unpublishable_property : p:corrupt_pred -> i:timestamp ->
+  Lemma (forall (join_label:label) (prin:principal). (
+    (
+      (~ (can_flow_p p i join_label public)) /\
+      (exists (p1 p2:principal). join_label == join (readers [P p1]) (readers [P p2])) /\
+      can_flow_p p i join_label (readers [P prin])
+    )
+    ==>
+    (exists (p1:principal). join_label == join (readers [P p1]) (readers [P prin]))
+    ))
+val join_forall_is_equal : p:corrupt_pred -> i:timestamp -> join_label:label -> prin:principal -> prin':principal ->
+  Lemma ((prin <> prin' /\ 
+		  (exists (p1:principal). join_label == join (readers [P p1]) (readers [P prin])) /\
+		  (exists (p2:principal). join_label == join (readers [P prin']) (readers [P p2]))) ==>
+	(join_label == join (readers [P prin]) (readers [P prin'])))
 
 val can_flow_meet_public_lemma: p:corrupt_pred -> i:timestamp -> Lemma (forall l1 l2. can_flow_p p i (meet l1 l2) public <==> can_flow_p p i l1 public /\ can_flow_p p i l2 public)
 val can_flow_meet_forall_public_lemma: p:corrupt_pred -> Lemma (forall i l1 l2. can_flow_p p i (meet l1 l2) public <==> can_flow_p p i l1 public /\ can_flow_p p i l2 public)
@@ -227,6 +276,9 @@ val includes_corrupt_2_lemma_forall_trace_index: p:corrupt_pred -> p1:id -> p2:i
 val includes_corrupt_2_lemma_forall: p:corrupt_pred ->
   Lemma (forall i p1 p2. can_flow_p p i (readers [p1; p2]) public ==> can_flow_p p i (readers [p1]) public \/ can_flow_p p i (readers [p2]) public)
   
-val can_flow_readers_to_join: p:corrupt_pred ->
-  Lemma (forall i p1 p2. can_flow_p p i (readers [p1; p2]) (join (readers [p1]) (readers [p2])))
+val can_flow_readers_to_join: p:corrupt_pred -> i:timestamp -> p1:id -> p2:id ->
+  Lemma (can_flow_p p i (readers [p1; p2]) (join (readers [p1]) (readers [p2])))
+
+val can_flow_readers_lemma: p:corrupt_pred -> i:timestamp -> p1:id -> p2:id ->
+  Lemma (can_flow_p p i (readers [p1; p2]) (readers [p1]) /\ can_flow_p p i (readers [p1; p2]) (readers [p2]))
 

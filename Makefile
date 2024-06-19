@@ -1,3 +1,7 @@
+# Paths inside docker container
+FSTAR_HOME ?= /home/build/FStar
+DY_HOME ?= /home/build/dolev-yao-star
+
 CACHE_DIR     ?= $(DY_HOME)/.cache/symbolic
 HINT_DIR      ?= $(DY_HOME)/.hints/symbolic
 
@@ -7,10 +11,14 @@ all:
 	rm -f .depend.symbolic && $(MAKE) .depend.symbolic
 	$(MAKE) verify
 
-LIB_BASE_FST_FILES = $(addprefix $(DY_HOME)/,SecrecyLabels.fst CryptoEffect.fst GlobalRuntimeLib.fst LabeledRuntimeAPI.fst LabeledPKI.fst AttackerAPI.fst) $(addprefix $(DY_HOME)/symbolic/,CryptoLib.fst LabeledCryptoAPI.fst)
-LIB_BASE_CMX_FILES = ocaml-symbolic/SecrecyLabels.cmx ocaml-symbolic/CryptoLib.cmx ocaml-symbolic/CryptoEffect.cmx ocaml-symbolic/GlobalRuntimeLib.cmx ocaml-symbolic/LabeledCryptoAPI.cmx ocaml-symbolic/LabeledRuntimeAPI.cmx ocaml-symbolic/LabeledPKI.cmx ocaml-symbolic/AttackerAPI.cmx
+COMPARSE_LIB_FILES = Comparse.Bytes.Typeclass Comparse.Utils Comparse.Parser.Builtins  Comparse.Parser.Typeclass Comparse.Parser.Derived
+COMPARSE_LIB_FST_FILES=$(addprefix $(DY_HOME)/comparse/,$(addsuffix .fst,$(COMPARSE_LIB_FILES)))
+COMPARSE_LIB_CMX_FILES = $(addprefix ocaml-symbolic/,$(addsuffix .cmx,$(subst .,_,$(COMPARSE_LIB_FILES))))
 
-FSTAR_INCLUDE_DIRS = $(DY_HOME) $(DY_HOME)/symbolic
+LIB_BASE_FST_FILES =  $(COMPARSE_LIB_FST_FILES) $(addprefix $(DY_HOME)/,Ord.fst SecrecyLabels.fst CryptoEffect.fst GlobalRuntimeLib.fst LabeledRuntimeAPI.fst LabeledPKI.fst AttackerAPI.fst SerializationHelpers.fst RelaxLabels.fst ComparseGlue.fst SecurityLemmas.fst) $(addprefix $(DY_HOME)/symbolic/,CryptoLib.fst LabeledCryptoAPI.fst)
+LIB_BASE_CMX_FILES =  $(COMPARSE_LIB_CMX_FILES) ocaml-symbolic/Ord.cmx ocaml-symbolic/SecrecyLabels.cmx ocaml-symbolic/CryptoLib.cmx ocaml-symbolic/CryptoEffect.cmx ocaml-symbolic/GlobalRuntimeLib.cmx ocaml-symbolic/LabeledCryptoAPI.cmx ocaml-symbolic/LabeledRuntimeAPI.cmx ocaml-symbolic/LabeledPKI.cmx ocaml-symbolic/AttackerAPI.cmx ocaml-symbolic/SerializationHelpers.cmx ocaml-symbolic/RelaxLabels.cmx ocaml-symbolic/ComparseGlue.cmx ocaml-symbolic/SecurityLemmas.cmx
+
+FSTAR_INCLUDE_DIRS = $(DY_HOME) $(DY_HOME)/symbolic $(DY_HOME)/comparse
 
 FSTAR_FLAGS = --cmi \
   --warn_error -331 \
@@ -57,13 +65,13 @@ verify: $(addsuffix .checked, $(addprefix $(CACHE_DIR)/,$(ROOTS)))
 CODEGEN=OCaml
 
 ifeq ($(OS),Windows_NT)
-  export OCAMLPATH := $(FSTAR_HOME)/bin;$(OCAMLPATH)
+  export OCAMLPATH := $(FSTAR_HOME)/lib;$(OCAMLPATH)
 else
-  export OCAMLPATH := $(FSTAR_HOME)/bin:$(OCAMLPATH)
+  export OCAMLPATH := $(FSTAR_HOME)/lib:$(OCAMLPATH)
 endif
 
-OCAMLOPT = ocamlfind opt -package fstarlib -thread -linkpkg -linkall -g -I ocaml-symbolic -w -8-20-26
-OCAMLSHARED = ocamlfind opt -shared -package fstar-tactics-lib -g -I ocaml-symbolic -w -8-20-26
+OCAMLOPT = ocamlfind opt -package fstar.lib -thread -linkpkg -g -I ocaml-symbolic -w -8-20-26
+OCAMLSHARED = ocamlfind opt -shared -package fstar.lib -g -I ocaml-symbolic -w -8-20-26
 
 .PRECIOUS: %.ml
 %.ml:
@@ -85,4 +93,3 @@ clean:
 
 distclean: clean
 	rm -rf .cache/*
-

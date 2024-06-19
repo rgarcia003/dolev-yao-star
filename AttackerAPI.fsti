@@ -66,6 +66,12 @@ val attacker_can_derive_later: i:timestamp -> steps:nat -> j:nat ->
         (ensures (forall t. attacker_can_derive i steps t ==> attacker_can_derive j steps t))
         (decreases steps)
 
+val attacker_can_derive_empty: (i:timestamp) -> 
+  Lemma (attacker_can_derive i 0 empty)
+
+
+
+
 /// Predicates
 /// ----------
 
@@ -73,7 +79,7 @@ val attacker_can_derive_later: i:timestamp -> steps:nat -> j:nat ->
 The attacker knows a term t at the position i in the trace if
 it is derivable by the attacker (for some number of steps).
 *)
-let attacker_knows_at (i:timestamp) (t:bytes) =
+let attacker_knows_at (i:timestamp) (t:bytes) : prop =
   exists (steps:nat). attacker_can_derive i steps t
 
 (**
@@ -88,14 +94,32 @@ val attacker_knows_later: i:timestamp -> j:timestamp ->
         (ensures (forall a. attacker_knows_at i a ==> attacker_knows_at j a))
         [SMTPat (later_than j i); SMTPat (attacker_knows_at i)]
 
+
+val attacker_knows_empty: i:timestamp ->
+  Lemma (attacker_knows_at i empty)
+
+val attacker_knows_concat: (i:timestamp) -> (a:bytes) -> b:bytes ->
+  Lemma (attacker_knows_at i a /\ attacker_knows_at i b
+    ==> attacker_knows_at i (raw_concat a b))
+
+val attacker_knows_split: (i:timestamp) -> (l:nat) -> (b:bytes)
+ -> Lemma (requires Success? (split_at l b))
+   (ensures attacker_knows_at i b ==> attacker_knows_at i (fst (Success?.v (split_at l b))) /\ attacker_knows_at i (snd (Success?.v (split_at l b))))
+
+val attacker_knows_from_nat: (i:timestamp) -> (sz:nat) -> (n:nat_lbytes sz)
+  -> Lemma (attacker_knows_at i (nat_lbytes_to_bytes sz n))
+
 /// API for Attacker
 /// ----------------
 ///
-/// These are the functions that are **at least** available to the attacker,
-/// i.e., if the typecheck is successfull, we know that the attacker can perform these actions.
+/// These are the functions that are **at least** available to the attacker, i.e., if the typecheck
+/// is successful, we know that the attacker can perform these actions.
 ///
-/// However, this API does not define the attacker that we are talking about in the proof, i.e., we do not show that the protocol is secure wrt. all attackers having access to exactly this API.
-
+/// However, this API does not *define* the attacker that we are talking about in the proof, i.e.,
+/// we do not show that the protocol is secure only w.r.t. all attackers having access to exactly
+/// this API (again, this API just reflects the *minimal* attacker capabilities, sometimes referred
+/// to as *attacker typeability*).
+///
 /// Attacker API: Manipulation of Terms:
 /// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ///
@@ -108,6 +132,7 @@ let pub_bytes (i:timestamp) = t:bytes{attacker_knows_at i t}
 let pub_bytes_later (i:timestamp) (j:timestamp{later_than j i}) (t:pub_bytes i) : pub_bytes j =
     attacker_knows_later i j;
     t
+
 
 module C = CryptoLib
 val string_to_pub_bytes: l:string -> pub_bytes 0
@@ -140,6 +165,16 @@ val pub_bytes_to_bytestring_lemma: #i:timestamp -> p:pub_bytes i ->
          | Success r -> Success r == C.bytes_to_bytestring p
          | _ -> True)
 
+val nat_lbytes_to_pub_bytes: sz:nat -> x:nat_lbytes sz -> pub_bytes 0
+val nat_lbytes_to_pub_bytes_lemma: sz:nat -> x:nat_lbytes sz ->
+  Lemma (nat_lbytes_to_pub_bytes sz x == C.nat_lbytes_to_bytes sz x)
+
+val pub_bytes_to_nat_lbytes: #i:timestamp -> b:pub_bytes i -> result (nat_lbytes (len b))
+val pub_bytes_to_nat_lbytes_lemma: #i:timestamp -> b:pub_bytes i ->
+  Lemma (match pub_bytes_to_nat_lbytes #i b with
+         | Success x -> C.bytes_to_nat_lbytes b == Success x
+         | Error e -> C.bytes_to_nat_lbytes b == Error e)
+
 val concat_len_prefixed: #i:timestamp -> ll:nat -> t1:pub_bytes i -> t2:pub_bytes i -> pub_bytes i
 val concat_len_prefixed_lemma: #i:timestamp -> ll:nat -> t1:pub_bytes i -> t2:pub_bytes i ->
   Lemma (concat_len_prefixed ll t1 t2 == C.concat_len_prefixed ll t1 t2)
@@ -153,7 +188,10 @@ val split_len_prefixed_lemma (#i:timestamp) (ll:nat) (t:pub_bytes i) :
 let concat (#i:timestamp) (t1 t2:pub_bytes i) : pub_bytes i = concat_len_prefixed #i 4 t1 t2
 let split (#i:timestamp) (t:pub_bytes i) : result (pub_bytes i * pub_bytes i) = split_len_prefixed #i 4 t
 
-let raw_concat (#i:timestamp) (t1 t2:pub_bytes i) : pub_bytes i = concat_len_prefixed #i 0 t1 t2
+val raw_concat: #i:timestamp -> b1:pub_bytes i -> b2:pub_bytes i -> pub_bytes i
+val raw_concat_lemma: #i:timestamp -> b1:pub_bytes i -> b2:pub_bytes i ->
+  Lemma(raw_concat b1 b2 == C.raw_concat b1 b2)
+
 val split_at: #i:timestamp -> l:nat -> t:pub_bytes i -> result (pub_bytes i * pub_bytes i)
 val split_at_lemma (#i:timestamp) (l:nat) (t:pub_bytes i) :
   Lemma (match split_at #i l t with
@@ -197,6 +235,14 @@ val mac_lemma: #i:timestamp -> t1:pub_bytes i -> t2:pub_bytes i ->
 val hash: #i:timestamp -> pub_bytes i -> pub_bytes i
 val hash_lemma: #i:timestamp -> t1:pub_bytes i ->
   Lemma (hash t1 == C.hash t1)
+
+val dh_pk: #i:timestamp -> pub_bytes i -> pub_bytes i
+val dh_pk_lemma: #i:timestamp -> t1:pub_bytes i ->
+  Lemma (dh_pk t1 == C.dh_pk t1)
+
+val dh: #i:timestamp -> priv_component:pub_bytes i -> pub_component:pub_bytes i -> pub_bytes i
+val dh_lemma: #i:timestamp -> priv_component:pub_bytes i -> pub_component:pub_bytes i ->
+  Lemma (dh priv_component pub_component == C.dh priv_component pub_component)
 
 
 /// Attacker API: Manipulation of Trace:
@@ -287,3 +333,15 @@ val query_state_i: idx_state:timestamp -> idx_corrupt:timestamp -> idx_query:tim
                          | Success x -> query_result idx_state p si sv x)))
 
 
+val query_state: #now:timestamp -> idx_corrupt:timestamp ->
+                   p:principal -> si:nat -> sv:nat ->
+                   Crypto (pub_bytes now)
+                  (requires (fun t0 -> idx_corrupt < now /\
+                                    now = trace_len t0 /\
+                                    was_corrupted_at idx_corrupt p si sv))
+                  (ensures (fun t0 r t1 ->
+                        t0 == t1 /\
+                        later_than (trace_len t1) (trace_len t0) /\
+                        (match r with
+                         | Error _ -> True
+                         | Success x -> exists idx_state. idx_state < now /\ query_result idx_state p si sv x)))

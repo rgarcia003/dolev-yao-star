@@ -17,7 +17,10 @@ let is_n_b_in_b_state a b idx_setstate v_b state_b idx_sess n_b =
   |_ -> False
   )
 
-let n_b_is_secret n_b = secrecy_lemma #(pki nsl) n_b
+let n_b_is_secret #a #b #idx_setstate #v_b #state_b #idx_sess n_b =
+  let len_t0 = global_timestamp () in
+  assert (later_than len_t0 idx_setstate);
+  secrecy_lemma #(pki nsl) n_b
 
 let is_n_b_in_a_state a b idx_setstate v_a state_a idx_sess n_b =
   state_was_set_at idx_setstate a v_a state_a /\ 
@@ -28,7 +31,10 @@ let is_n_b_in_a_state a b idx_setstate v_a state_a idx_sess n_b =
   |_ -> False
   )
 
-let n_b_in_a_state_is_secret n_b = secrecy_lemma #(pki nsl) n_b
+let n_b_in_a_state_is_secret #a #b #idx_setstate #v_a #state_a #idx_sess n_b =
+  let len_t0 = global_timestamp () in
+  assert (later_than len_t0 idx_setstate);
+  secrecy_lemma #(pki nsl) n_b
 
 let initiator_authentication i = ()
 

@@ -23,7 +23,7 @@ noeq type entry_t =
 
 type trace = Seq.seq entry_t
 
-let trace_len t = Seq.length t
+let trace_len (t:trace) = Seq.length t
 
 /// CRYPTO Effect
 /// -------------
@@ -160,9 +160,9 @@ effect Crypto (a:Type) (req:trace -> Type0) (ens:(s0:trace{req s0} -> result a -
 /// postconditions involving the global trace.
 
 (* A predicate saying that a certain entry is stored at a certain trace index *)
-val trace_entry_at (trace_index:timestamp) (entry:entry_t) : Type0
+val trace_entry_at (trace_index:timestamp) (entry:entry_t) : prop
 
-let trace_entry_before (j:timestamp) (e:entry_t) =
+let trace_entry_before (j:timestamp) (e:entry_t): prop =
   exists (trace_index:timestamp). trace_index <= j /\ trace_entry_at trace_index e
 
 

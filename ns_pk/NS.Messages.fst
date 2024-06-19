@@ -41,7 +41,7 @@ let parse_message (m:bytes) =
 
 let ns_key_usages : A.key_usages = A.default_key_usages
 
-let ppred (i:nat) s pk m =
+let ppred (i:nat) s pk m: prop =
     (exists p. A.get_sk_label ns_key_usages pk == readers [P p] /\
     (match parse_message m with
     | Success (Msg2 n_a n_b) ->
@@ -53,9 +53,9 @@ let ppred (i:nat) s pk m =
     | Success (Msg3 n_b) -> True
     | _ -> False))
 
-let apred i s k m ad = True
-let spred i s k m = True
-let mpred i s k m = True
+let apred i s k m ad: prop = True
+let spred i s k m: prop = True
+let mpred i s k m: prop = True
 
 let ns_usage_preds : A.usage_preds = {
   A.can_pke_encrypt = ppred;

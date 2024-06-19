@@ -67,14 +67,14 @@ val serialize_ad_injective: our_ephemeral_pub_key:bytes -> prev_counter:nat -> c
 	  [SMTPat (serialize_ad our_ephemeral_pub_key prev_counter counter their_identity_pub_key our_identity_pub_key);
 	   SMTPat (serialize_ad our_ephemeral_pub_key' prev_counter' counter' their_identity_pub_key' our_identity_pub_key')]
 
-let ppred i s pk m = True
-let apred (i:nat) s (k:bytes) (m:bytes) (ad:bytes) = 
+let ppred i s pk m: prop = True
+let apred (i:nat) s (k:bytes) (m:bytes) (ad:bytes): prop =
     (exists ek pc c tik oik p si v.
        ad == serialize_ad ek pc c tik oik /\
        (A.get_dhkey_label signal_key_usages oik) == (readers [P p]) /\
        (A.get_dhkey_label signal_key_usages ek)  == (readers [V p si v]))
-let spred i s k m = True
-let mpred i s k m = True
+let spred i s k m: prop = True
+let mpred i s k m: prop = True
 
 let signal_usage_preds : A.usage_preds = {
   A.can_pke_encrypt = ppred;

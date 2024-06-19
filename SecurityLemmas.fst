@@ -8,6 +8,8 @@ friend LabeledRuntimeAPI // required for definition of valid_trace
 friend SecrecyLabels
 let publishable_readers_implies_corruption #i l = includes_corrupt_lemma i l
 
+let publishable_readers_implies_corruption2 #i l = includes_corrupt_lemma i l
+
 val corrupt_principals_have_publishable_state_at: pr:preds -> t:trace -> trace_index:timestamp ->
   Lemma (requires (valid_trace pr t /\ trace_index <= trace_len t))
         (ensures (forall j p vv s si v. (Seq.length vv > si /\ corrupt_at trace_index (V p si (Seq.index vv si)) /\
@@ -28,7 +30,7 @@ let corrupt_principals_have_publishable_state_at pr t i =
 val publishable_before_is_publishable : pr:preds -> h:trace -> i:timestamp ->
     Lemma (requires (valid_trace pr h /\ later_than (trace_len h) i))
           (ensures (forall t. (i > 0 /\ Att.was_published_before (i-1) t) ==> is_publishable pr.global_usage i t))
-let publishable_before_is_publishable pr h i = assert (later_than i (i-1)); ()
+let publishable_before_is_publishable pr h i = assert (i > 0 ==> later_than i (i-1)); ()
 
 val corrupted_before_is_publishable : pr:preds -> h:trace -> i:timestamp ->
     Lemma (requires (valid_trace pr h /\ later_than (trace_len h) i))
@@ -41,12 +43,13 @@ val attacker_only_derives_public_values_:
     (requires (valid_trace pr h /\ later_than (trace_len h) i))
     (ensures (forall t. Att.attacker_can_derive i steps t ==> is_publishable pr.global_usage i t))
 
-#push-options "--z3rlimit 25"
+#push-options "--z3rlimit 50"
 let rec attacker_only_derives_public_values_ pr h i steps =
   if steps = 0 then (
         strings_are_publishable_forall pr.global_usage;
         nats_are_publishable_forall pr.global_usage;
         bytestrings_are_publishable_forall pr.global_usage;
+        nat_lbytes_are_publishable_forall pr.global_usage;
         corrupted_before_is_publishable pr h i;
         publishable_before_is_publishable pr h i
   )
@@ -54,7 +57,9 @@ let rec attacker_only_derives_public_values_ pr h i steps =
         attacker_only_derives_public_values_ pr h i (steps - 1);
         assert (forall a'. Att.attacker_can_derive i (steps - 1) a' ==> is_publishable pr.global_usage i a');
         concatenation_publishable_implies_components_publishable_forall pr.global_usage;
+        raw_concatenation_publishable_implies_components_publishable_forall pr.global_usage;
         splittable_term_publishable_implies_components_publishable_forall pr.global_usage;
+        splittable_at_term_publishable_implies_components_publishable_forall pr.global_usage;
         public_key_is_publishable_if_private_key_is_publishable_forall pr.global_usage;
         pke_ciphertext_publishable_if_key_and_msg_are_publishable_forall pr.global_usage;
         pke_plaintext_publishable_if_key_and_ciphertext_publishable_forall pr.global_usage;
@@ -65,7 +70,8 @@ let rec attacker_only_derives_public_values_ pr h i steps =
         extract_value_publishable_if_secrets_are_publishable_forall pr.global_usage;
         mac_is_publishable_if_key_and_msg_are_publishable_forall pr.global_usage;
         hash_value_publishable_if_message_is_publishable_forall pr.global_usage;
-        dh_is_publishable_if_keys_are_publishable_forall pr.global_usage;
+        dh_public_key_is_publishable_if_private_key_is_publishable_forall pr.global_usage;
+        dh_is_publishable_if_private_and_public_keys_are_publishable_forall pr.global_usage;
         ())
 #pop-options
 
@@ -93,6 +99,63 @@ let attacker_preserves_validity pr t0 t1 =
 
 let attacker_only_knows_publishable_values pr b = ()
 
+let secrecy_lemma #pr b =
+ attacker_only_knows_publishable_values pr b
 
-let secrecy_lemma #pr b = ()
-let secrecy_join_label_lemma #pr b = ()
+let secrecy_generic_label_lemma #pr b l =
+    introduce forall ids tr. (valid_trace pr tr /\
+                        is_labeled pr.global_usage (trace_len tr) b l /\
+                        can_flow (trace_len tr) (readers ids) l /\
+                        Att.attacker_knows_at (trace_len tr) b) ==>
+                        can_flow (trace_len tr) (readers ids) public
+    with ()
+
+let secrecy_join_label_lemma #pr b = attacker_only_knows_publishable_values pr b
+
+let secrecy_generic_label_lemma2 (#pr:preds) (b:bytes) (l:label) (tr:trace)
+  : Lemma (requires valid_trace pr tr)
+          (ensures forall ids. (can_flow (trace_len tr) (readers ids) l /\
+                           is_labeled pr.global_usage (trace_len tr) b l /\
+                           Att.attacker_knows_at (trace_len tr) b) ==>
+                           (exists id. List.Tot.mem id ids /\ corrupt_at (trace_len tr) id))
+  = introduce forall ids. (valid_trace pr tr /\
+                      is_labeled pr.global_usage (trace_len tr) b l /\
+                      can_flow (trace_len tr) (readers ids) l /\
+                      Att.attacker_knows_at (trace_len tr) b) ==>
+                      can_flow (trace_len tr) (readers ids) public
+    with ()
+
+let secrecy_join_label_lemma2 #pr b =
+  introduce forall l1 l2 tr. (valid_trace pr tr /\
+                         is_labeled pr.global_usage (trace_len tr) b (join (readers l1) (readers l2)) /\
+                         Att.attacker_knows_at (trace_len tr) b) ==>
+                         (exists id. (List.Tot.mem id l1 \/ List.Tot.mem id l2) /\ corrupt_at (trace_len tr) id)
+  with begin
+    introduce (valid_trace pr tr /\
+               is_labeled pr.global_usage (trace_len tr) b (join (readers l1) (readers l2)) /\
+               Att.attacker_knows_at (trace_len tr) b) ==>
+               (exists id. (List.Tot.mem id l1 \/ List.Tot.mem id l2) /\ corrupt_at (trace_len tr) id)
+    with _. secrecy_generic_label_lemma2 #pr b (join (readers l1) (readers l2)) tr
+  end
+
+let secrecy_joinall3_label_lemma #pr b =
+  introduce forall l1 l2 l3 tr. (valid_trace pr tr /\
+                            is_labeled pr.global_usage (trace_len tr) b (joinAll [l1; l2; l3]) /\
+                            Att.attacker_knows_at (trace_len tr) b) ==>
+                            (can_flow (trace_len tr) l1 public \/
+                             can_flow (trace_len tr) l2 public \/
+                             can_flow (trace_len tr) l3 public)
+  with begin
+    introduce  (valid_trace pr tr /\
+                is_labeled pr.global_usage (trace_len tr) b (joinAll [l1; l2; l3]) /\
+                Att.attacker_knows_at (trace_len tr) b) ==>
+                (can_flow (trace_len tr) l1 public \/
+                 can_flow (trace_len tr) l2 public \/
+                 can_flow (trace_len tr) l3 public)
+    with _. begin
+      assert_norm(joinAll [l1; l2; l3] == join (join (join private_label l1) l2) l3);
+      assert(is_labeled pr.global_usage (trace_len tr) b (joinAll [l1; l2; l3]));
+      assert(is_labeled pr.global_usage (trace_len tr) b (join (join (join private_label l1) l2) l3));
+      can_flow_join_public_lemma (trace_len tr)
+    end
+  end

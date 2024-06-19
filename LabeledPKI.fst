@@ -5,18 +5,6 @@ module LabeledPKI
 module A = LabeledCryptoAPI
 module R = LabeledRuntimeAPI
 
-type session_st =
-  | SigningKey: t:string -> secret_key:bytes -> session_st
-  | VerificationKey: t:string -> peer:principal -> public_key:bytes -> session_st
-  | DHPrivateKey: t:string -> secret_key:bytes -> session_st
-  | DHPublicKey: t:string -> peer:principal -> public_key:bytes -> session_st
-  | OneTimeDHPrivKey: t:string -> secret_key:bytes -> session_st
-  | OneTimeDHPubKey: t:string -> peer:principal -> public_key:bytes -> session_st
-  | DeletedOneTimeKey: t:string -> session_st
-  | DecryptionKey: t:string -> secret_key:bytes -> session_st
-  | EncryptionKey: t:string -> peer:principal -> public_key:bytes -> session_st
-  | APP: st:bytes -> session_st
-
 let serialize_session_st st : bytes =
    match st with
    |SigningKey t secret_key -> concat ((string_to_bytes "SigningKey")) (concat ((string_to_bytes t)) (secret_key))
@@ -31,65 +19,52 @@ let serialize_session_st st : bytes =
    |APP s -> concat ((string_to_bytes "APP")) s
 
 let parse_session_st (serialized_session:bytes) : result session_st =
-  r <-- split serialized_session;
+  let? r = split serialized_session in
   let (tn,o) = r in
-  r <-- bytes_to_string tn;
-  match r with
+  match? bytes_to_string tn with
   | "APP" -> Success (APP o)
   | "SigningKey" -> (
-    r <-- split o ;
-    let (tb,sk) = r in
-    t <-- bytes_to_string tb;
+    let? (tb,sk) = split o in
+    let? t = bytes_to_string tb in
     Success (SigningKey t sk))
   | "VerificationKey" -> (
-    r <-- split o ;
-    let (tb,ppk) = r in
-    t <-- bytes_to_string tb;
-    r <-- split ppk ;
-    let (pb,pk) = r in
-    p <-- bytes_to_string pb ;
+    let? (tb,ppk) = split o in
+    let? t = bytes_to_string tb in
+    let? (pb,pk) = split ppk in
+    let? p = bytes_to_string pb in
     Success (VerificationKey t p pk))
   | "DHPrivateKey" -> (
-    r <-- split o ;
-    let (tb,sk) = r in
-    t <-- bytes_to_string tb;
+    let? (tb,sk) = split o in
+    let? t = bytes_to_string tb in
     Success (DHPrivateKey t sk))
   | "DHPublicKey" -> (
-    r <-- split o ;
-    let (tb,ppk) = r in
-    t <-- bytes_to_string tb;
-    r <-- split ppk ;
-    let (pb,pk) = r in
-    p <-- bytes_to_string pb ;
+    let? (tb,ppk) = split o in
+    let? t = bytes_to_string tb in
+    let? (pb,pk) = split ppk in
+    let? p = bytes_to_string pb in
     Success (DHPublicKey t p pk))
   | "OneTimeDHPrivKey" -> (
-    r <-- split o ;
-    let (tb,sk) = r in
-    t <-- bytes_to_string tb;
+    let? (tb,sk) = split o in
+    let? t = bytes_to_string tb in
     Success (OneTimeDHPrivKey t sk))
   | "OneTimeDHPubKey" -> (
-    r <-- split o ;
-    let (tb,ppk) = r in
-    t <-- bytes_to_string tb;
-    r <-- split ppk ;
-    let (pb,pk) = r in
-    p <-- bytes_to_string pb ;
+    let? (tb,ppk) = split o in
+    let? t = bytes_to_string tb in
+    let? (pb,pk) = split ppk in
+    let? p = bytes_to_string pb in
     Success (OneTimeDHPubKey t p pk))
   | "DeletedOneTimeKey" -> (
-    t <-- bytes_to_string o;
+    let? t = bytes_to_string o in
     Success (DeletedOneTimeKey t))
   | "DecryptionKey" -> (
-    r <-- split o ;
-    let (tb,sk) = r in
-    t <-- bytes_to_string tb;
+    let? (tb,sk) = split o in
+    let? t = bytes_to_string tb in
     Success (DecryptionKey t sk))
   | "EncryptionKey" -> (
-    r <-- split o ;
-    let (tb,ppk) = r in
-    t <-- bytes_to_string tb;
-    r <-- split ppk ;
-    let (pb,pk) = r in
-    p <-- bytes_to_string pb ;
+    let? (tb,ppk) = split o in
+    let? t = bytes_to_string tb in
+    let? (pb,pk) = split ppk in
+    let? p = bytes_to_string pb in
     Success (EncryptionKey t p pk))
   | _ -> Error "unknown key name"
 
@@ -97,7 +72,9 @@ let parse_session_st (serialized_session:bytes) : result session_st =
 val parse_serialize_session_st_lemma : ss:session_st ->
     Lemma (Success ss == parse_session_st (serialize_session_st ss))
           [SMTPat (parse_session_st (serialize_session_st ss))]
-let parse_serialize_session_st_lemma ss = ()
+let parse_serialize_session_st_lemma ss =
+  assert_norm(Success ss == parse_session_st (serialize_session_st ss))
+
 
 let valid_session (pr:R.preds) (i:timestamp) (p:principal) (si:nat) (vi:nat) (st:session_st) : Type0 =
   match st with
@@ -184,7 +161,7 @@ let valid_session_lemma pr i p si vi st =
     ()
 
 
-let session_st_inv pr i p si vi st =
+let session_st_inv pr i p si vi st: prop =
   A.is_msg pr.R.global_usage i st (readers [V p si vi]) /\
   (match parse_session_st st with
    | Success s -> valid_session pr i p si vi s
@@ -224,7 +201,7 @@ let get_session #pr #i p si =
     assert (valid_session pr  i p si vi (APP s'));
     pr.trace_preds.session_st_inv_lemma i p si vi s';
     (|vi,s'|)
-  | _ -> error "not an application state"
+  | _ -> error "get_session: not an application state"
 
 let find_session #pr #i p f =
   let f' si vi st =
@@ -239,7 +216,7 @@ let find_session #pr #i p f =
        assert (valid_session pr i p si vi (APP s'));
        pr.trace_preds.session_st_inv_lemma i p si vi s';
        Some (|si,vi,s'|)
-     | _ -> error "not an application state")
+     | _ -> error "find_session: not an application state")
 )
 
 let keygen pr p si kt ts :
@@ -264,8 +241,15 @@ let public_key_st pr i p peer si vi (kt:key_type{kt <> OneTimeDH}) ts (sk:privat
   | DH -> DHPublicKey ts p (A.dh_pk #pr.global_usage #i #(readers [P p]) sk)
   | PKE -> EncryptionKey ts p (A.pk #pr.global_usage #i #(readers [P p]) sk)
 
+let kt2string (kt:key_type) =
+  match kt with
+  | SIG -> "SIG"
+  | DH -> "DH"
+  | PKE -> "PKE"
+  | OneTimeDH -> "OneTimeDH"
+
 let gen_private_key #pr #t0 p kt ts =
-  print_string ("generating private key for "^p^"\n");
+  print_string ("generating private key '"^ts^"' of type "^(kt2string kt)^" for '"^p^"'\n");
   let si = new_session_number #(pki pr) p in
   let (|t1,sk|) = keygen pr p si kt ts in
   assert (later_than t1 t0);
@@ -292,7 +276,7 @@ let get_private_key #pr #i p kt ts =
      | PKE, Success (DecryptionKey ts' sk) -> (|si, sk|)
      | OneTimeDH, Success (OneTimeDHPrivKey ts' sk) -> (|si, sk|)
      |_ -> error "not the right kind of key")
-  | None -> error "private key not found"
+  | None -> error ("private key named '" ^ ts ^ "' not found in " ^ p ^ "'s state")
 
 let install_public_key #pr #i p peer kt ts =
   print_string ("installing public key for "^p^" at "^peer^"\n");
@@ -318,7 +302,7 @@ let get_public_key #pr #i p peer kt ts =
      | PKE, Success (EncryptionKey ts' _ sk) -> sk
      | OneTimeDH, Success (OneTimeDHPubKey ts' peer sk) -> sk
      |_ -> error "not the right kind of key")
-  | None -> error "public key not found"
+  | None -> error ("Could not find " ^ peer ^ "'s public key (with name " ^ ts ^ ") in " ^ p ^ "'s state")
 
 let delete_one_time_key #pr #i p ts =
   let (|si, sk|) = get_private_key #pr #i p OneTimeDH ts in

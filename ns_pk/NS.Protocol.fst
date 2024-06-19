@@ -2,7 +2,6 @@
 /// ==============================
 module NS.Protocol
 
-#push-options "--z3rlimit 200 --max_fuel 2 --max_ifuel 2"
 let initiator_send_msg_1 a b =
   let si = new_session_number #ns a in
   let (|t0, n_a|) = rand_gen #ns (readers [P a; P b]) (nonce_usage "NS.nonce") in
@@ -30,7 +29,6 @@ let initiator_send_msg_1 a b =
   let c_msg1 = pke_enc #ns_global_usage #t3 #(readers [P a]) pkb n_msg1 msg1' in
   let now = send #ns #t3 a b c_msg1 in
   (si, now)
-#pop-options
 
 val responder_receive_msg_1_helper:
   #i:nat ->
@@ -100,8 +98,10 @@ let responder_send_msg_2 b msg_idx =
   let t2 = global_timestamp () in
   let (|t3,n_msg2|) = rand_gen #ns (readers [P b]) (nonce_usage "PKE_NONCE") in
   let c_msg2 = responder_send_msg_2_helper #t3 b a pka n_a n_b n_msg2 in
-  let now = send #ns #t3 b a c_msg2 in
-  (si, now)
+  let nown = send #ns #t3 b a c_msg2 in
+  let t = get () in
+//  assume(nown == trace_len t -1 );
+  (si, nown)
 
 let n_b_pred i a b n_a n_b =
 	((is_publishable ns_global_usage i n_b /\ (corrupt_id i (P a) \/ corrupt_id i (P b))) \/
@@ -141,7 +141,6 @@ let initiator_send_msg_3_helper (#i:nat) (a:principal) (b:principal) (pkb: pub_k
   sk_label_lemma ns_global_usage i pkb (readers [P b]);
   pke_enc #ns_global_usage #i pkb n_pke msg3'
 
-#push-options "--z3rlimit 100"
 
 let initiator_send_msg_3 a idx_init_session msg_idx =
   let t0 = global_timestamp () in
@@ -195,7 +194,6 @@ let responder_receive_msg_3 b idx_resp_session msg_idx =
     let new_ss = serialize_valid_session_st t1 b idx_resp_session vi new_ss_st in
     update_session #ns #t1 b idx_resp_session vi new_ss
   |_ -> error "parse error"
-#pop-options
 
 let nonce_secrecy_test a b idx_init_session test_n_b =
   let t0 = global_timestamp () in 

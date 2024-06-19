@@ -4,6 +4,8 @@ module ISODH.Protocol
 
 module C = CryptoLib
 
+#set-options "--fuel 0 --ifuel 0 --z3rlimit 200"
+
 let initiator_send_msg_1 a b = 
   print_string ("initiator "^a^" sending first message to "^b^"\n");
   let si = new_session_number #isodh a in
@@ -33,7 +35,6 @@ let receive_msg_1_helper b idx_msg =
    | Success (Msg1 a gx) -> (|now,a,gx|)
    | _ -> error "responder_send_msg_2: not a msg1"
 
-#set-options "--z3rlimit 200 --max_fuel 2 --max_ifuel 2" 
 
 val send_msg_2_helper: #idx:nat -> b:principal -> a:principal -> gx:msg idx public -> LCrypto (nat*nat) (pki isodh)
 			  (requires (fun t0 -> later_than (trace_len t0) idx))
@@ -144,7 +145,7 @@ let initiator_send_msg_3 a idx_session idx_msg =
     | _ -> error "initiator_send_msg_3: not a msg2")
  | _ -> error  "initiator_send_msg_3: wrong session states"
 
-
+#restart-solver
 let responder_accept_msg_3 b idx_session idx_msg =
   print_string ("responder "^b^" processing third message\n");
   let t0 = global_timestamp () in

@@ -33,9 +33,10 @@ let sprint_bytes b =
 let sprint_generated_rand t = "Generated "^sprint_bytes t
 
 /// Construct/Destruct ``bytes``
-let empty = Seq.Base.empty
-
 let len b = Seq.length b
+
+let empty = Seq.Base.empty
+let len_empty () = ()
 
 let term_depth b = len b
 
@@ -69,18 +70,42 @@ let bytes_to_nat_ (b:pub_bytes) = nat_from_bytes_be b
 let string_to_bytes s = string_to_bytes_ s
 let bytes_to_string b = Success (bytes_to_string_ b)
 let string_to_bytes_lemma s = admit()
+let string_to_bytes_len s = ()
+let bytes_to_string_lemma s = admit()
 let nat_to_bytes len n = nat_to_bytes_ len n
 let bytes_to_nat b = Success (bytes_to_nat_ b)
 let nat_to_bytes_lemma n = admit()
+let bytes_to_nat_lemma len n = admit()
+
+let bytes_to_string_of_nat_to_bytes_error n = admit()
+
 let bytestring_to_bytes b = b
 let bytes_to_bytestring b = Success b
 let bytestring_to_bytes_lemma b = admit()
+
 
 let mk_rand i l u =
   let b = FStar.UInt8.uint_to_t (i % 256) in
   if u = "AEAD_NONCE" then
     Seq.create 12 b
   else Seq.create 32 b
+
+let nat_lbytes_to_bytes sz x =
+  nat_to_bytes_be sz x
+let bytes_to_nat_lbytes b =
+  return (nat_from_bytes_be b)
+
+let nat_lbytes_to_bytes_to_nat_lbytes sz x = ()
+
+let bytes_to_nat_lbytes_to_bytes b =
+  assume(len b < max_size_t);
+  lemma_nat_from_to_bytes_be_preserves_value b (len b)
+
+let bool_to_bytes s = if s then (string_to_bytes "true") else (string_to_bytes "false")
+let bytes_to_bool b = match bytes_to_string_ b with | "true" -> Success true | "false" -> Success false | _ -> Error ""
+let bool_to_bytes_lemma s = admit()
+let bytes_to_bool_lemma s = admit()
+
 
 let g_rand i l u = mk_rand i l u
 let g_rand_inj_lemma i1 i2 l1 l2 u1 u2 = admit()
@@ -105,12 +130,26 @@ let split b = split_len_prefixed 4 b
 
 let split_concat_lemma b1 b2 = ()
 let concat_split_lemma b = admit()
+let split_based_on_split_len_prefixed_lemma b = ()
+let concat_not_equal_string_to_bytes_lemma () = admit()
+let concat_uniqueness_lemma () = admit()
 
-let raw_concat b1 b2 = concat_len_prefixed 0 b1 b2
+let raw_concat b1 b2 = Seq.append b1 b2
+let len_raw_concat b1 b2 = ()
+
 let split_at len b =
-  if len > Seq.length b then Success (b,empty)
+  if len > Seq.length b then Error "split_at: len too big"
   else Success (Seq.slice b 0 len, Seq.slice b len (Seq.length b))
-let split_at_raw_concat_lemma l b = admit()
+let len_split_at len b = ()
+
+let split_at_raw_concat_lemma b1 b2 =
+  assert(b1 `Seq.eq` (Seq.slice (Seq.append b1 b2) 0 (Seq.length b1)));
+  assert(b2 `Seq.eq` (Seq.slice (Seq.append b1 b2) (Seq.length b1) (Seq.length (Seq.append b1 b2))))
+
+let raw_concat_split_at_lemma len b =
+  if len <= Seq.length b then
+    assert(b `Seq.eq` Seq.append (Seq.slice b 0 len) (Seq.slice b len (Seq.length b)))
+  else ()
 
 let dh_alg = Spec.Agile.DH.DH_Curve25519
 let aead_alg = Spec.Agile.AEAD.CHACHA20_POLY1305
@@ -154,6 +193,7 @@ let pke_dec k c =
 let pke_enc_inj_lemma pk n m = admit()
 let pke_dec_enc_lemma sk n msg = admit()
 let pke_dec_lemma sk cip = admit()
+let concat_not_equal_pke_enc_lemma() = admit()
 
 let aead_enc k iv m ad =
   let aek = if Seq.length k <> 32
@@ -194,6 +234,11 @@ let aead_dec_lemma k iv c ad = admit()
 let inv_aead_enc c = Error "Ghost function"
 let inv_aead_enc_inj_lemma c1 c2 = admit()
 let inv_aead_enc_lemma c = admit()
+let aead_uniqueness_lemma () = admit()
+
+let concat_not_equal_aead_enc_lemma () = admit()
+let pke_enc_not_equal_aead_enc_lemma () = admit()
+
 
 let vk b =
   let sk = if Seq.length b = 32 then b else Seq.create 32 0uy in
@@ -322,4 +367,5 @@ let dh sk pk =
 
 let dh_inj_lemma sk1 sk2 pk1 pk2 = ()
 let dh_shared_secret_lemma x y = admit()
+
 

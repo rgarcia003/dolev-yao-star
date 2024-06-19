@@ -18,6 +18,7 @@ let rec get_usage g b =
   | DH sk pk -> (match get_usage g sk with | Some (DHKey s) -> g.dh_unknown_peer_usage s b | _ -> None)
   | _ -> None
 
+/// .. _labeledcryptoapi_impl_get_label_def:
 let rec get_label g b =
   match b with
   | Literal _ -> Public
@@ -29,7 +30,7 @@ let rec get_label g b =
 		       | Some (KDF s) -> let l = (meet (get_label g key) (get_label g salt)) in 
 					join_opt l (g.kdf_extend_label s key salt (get_label g key) (get_label g salt))
 		       | _ -> meet (get_label g key) (get_label g salt))
-  | Expand key info -> get_label g key 
+  | Expand key info -> (get_label g key)
   | AEnc k iv msg ad -> Public
   | VK s -> Public
   | Sig sk n m -> get_label g m
@@ -37,7 +38,7 @@ let rec get_label g b =
   | Hash m -> get_label g m
   | DH_PK s -> Public
   | DH sk (DH_PK sk') -> join (get_label g sk) (get_label g sk')
-  | DH sk pk -> join (get_label g sk) private_label
+  | DH sk pk -> join (get_label g sk) public
 
 let get_sk_label g b =
   match b with
@@ -52,7 +53,7 @@ let get_signkey_label g b =
 let get_dhkey_label g b =
   match b with
   | DH_PK s -> get_label g s
-  | _ -> private_label
+  | _ -> Public
 
 (* Labeling Predicates *)
 let rec is_valid (p:global_usage) (ts:timestamp) (b:bytes) =
@@ -74,10 +75,13 @@ let rec is_valid (p:global_usage) (ts:timestamp) (b:bytes) =
                          | Some (PKE s) -> pke_pred p.usage_preds ts s pk msg
                          | _ -> False)
                      | _ -> False)))
-  | AEnc k iv msg ad -> is_valid p ts k /\ is_valid p ts msg /\ is_valid p ts ad /\ can_flow ts (get_label p.key_usages ad) public /\ is_valid p ts iv /\ can_flow ts (get_label p.key_usages iv) public /\
-                    ((can_flow ts (get_label p.key_usages msg) public /\ can_flow ts (get_label p.key_usages k) public)    // (1) message and key are public, or
-                      \/ (match get_usage p.key_usages k with
-                        | Some (AE s) -> can_flow ts (get_label p.key_usages msg) (get_label p.key_usages k) /\ aead_pred p.usage_preds ts s k msg ad | _ -> False))
+  | AEnc k iv msg ad -> is_valid p ts k /\ is_valid p ts msg /\ is_valid p ts ad /\ 
+		       can_flow ts (get_label p.key_usages ad) public /\ is_valid p ts iv /\ 
+		       can_flow ts (get_label p.key_usages iv) public /\
+		       can_flow ts (get_label p.key_usages msg) (get_label p.key_usages k) /\
+                       ((can_flow ts (get_label p.key_usages k) public)  // (1) message and key are public, or
+			 \/ (match get_usage p.key_usages k with
+                           | Some (AE s) -> aead_pred p.usage_preds ts s k msg ad | _ -> False))
   | Sig sk n msg -> is_valid p ts sk /\ is_valid p ts msg /\ is_valid p ts n /\
                  (can_flow ts (get_label p.key_usages sk) Public  // (1) key is public, or
                  \/ (match get_usage p.key_usages sk with
@@ -121,14 +125,14 @@ let rec is_valid_later pr i j t =
   | Mac k msg -> is_valid_later pr i j k; is_valid_later pr i j msg
   | DH sk pk -> is_valid_later pr i j sk; is_valid_later pr i j pk
 
+
+
 (* Crypto functions *)
 let empty #pr #i = empty
 let empty_lemma #pr #i = ()
 let len #pr #i #l b = C.len b
 let len_lemma #pr #i #l b = ()
-let restrict #pr #i #l1 t l2 = can_flow_transitive i (get_label pr.key_usages t) l1 l2; t
 
-let rand_is_secret #i #l #u r = ()
 
 let string_to_bytes #p #i s = C.string_to_bytes s 
 let string_to_bytes_lemma #i s = ()
@@ -148,6 +152,17 @@ let bytestring_to_bytes_lemma #i s = ()
 let bytes_to_bytestring #i #l t = C.bytes_to_bytestring t
 let bytes_to_bytestring_lemma #i #l t = ()
 
+let nat_lbytes_to_bytes sz x = C.nat_lbytes_to_bytes sz x
+let nat_lbytes_to_bytes_lemma len s = ()
+
+let bytes_to_nat_lbytes b = C.bytes_to_nat_lbytes b
+let bytes_to_nat_lbytes_lemma b = ()
+let bool_to_bytes #i s = C.bool_to_bytes s
+let bool_to_bytes_lemma #i s = ()
+
+let bytes_to_bool #i #l t = C.bytes_to_bool t
+let bytes_to_bool_lemma #i #l t = ()
+
 let concat_len_prefixed #i #l lenlen t1 t2 = C.concat_len_prefixed lenlen t1 t2
 let concat_len_prefixed_lemma #i #l lenlen t1 t2 = ()
 
@@ -165,7 +180,17 @@ let concat #i #l t1 t2 = concat_len_prefixed #i #l 4 t1 t2
 let concat_lemma #i #l t1 t2 = ()
 let split #i #l t = split_len_prefixed #i #l 4 t
 let split_lemma #i #l t = ()
-let split_at #p #i #l len t = split_len_prefixed #p #i 0 t
+
+let raw_concat b1 b2 = C.raw_concat b1 b2
+let raw_concat_lemma b1 b2 = ()
+
+let split_at #p #i #l len t =
+  match C.split_at len t with
+  | Success (b1, b2) ->
+    can_flow_transitive i (get_label p.key_usages b1) (meet (get_label p.key_usages b1) (get_label p.key_usages b2)) l;
+    can_flow_transitive i (get_label p.key_usages b2) (meet (get_label p.key_usages b1) (get_label p.key_usages b2)) l;
+    Success (b1, b2)
+  | Error e -> Error e
 let split_at_lemma #p #i #l len t = ()
 
 let pk #p #i #l sk = C.pk sk
@@ -219,6 +244,8 @@ let verification_key_label_lemma pr i b l = ()
 
 let mac #pr #i #l #l' k m = C.mac k m
 let mac_lemma #pr #i #l #l' k m = ()
+let verify_mac #pr #i #l #l' k m t = C.verify_mac k m t
+let verify_mac_lemma #pr #i #l #l' k m t = ()
 
 let hash #pr #i #l m = C.hash m
 let hash_lemma #pr #i #l m = ()
@@ -226,7 +253,7 @@ let hash_lemma #pr #i #l m = ()
 let extract #pr #i #l #l' k salt = C.extract k salt
 let extract_lemma #pr #i #l #l' k salt = ()
 
-let expand #pr #i #l #l' k info = C.expand k info
+let expand #pr #i #l #l' k info = C.expand k info 
 let expand_lemma #pr #i #l #l' k info = ()
 
 let dh_pk #pr #i #l sk = C.dh_pk sk
@@ -241,25 +268,30 @@ let dh #pr #i #l sk pk =
     match k with
     | DH s1 (DH_PK s2) ->
       (match get_usage pr.key_usages s1, get_usage pr.key_usages s2 with
-                         | Some (DHKey s), Some (DHKey s') -> assert (is_valid pr i k);
-                                assert (get_usage pr.key_usages k == pr.key_usages.dh_shared_secret_usage s s' k);
-                                pr.key_usages.dh_usage_commutes_lemma ();
-                                pr.key_usages.dh_unknown_peer_usage_lemma ();
-                                k
-                         | Some (DHKey s), _ | _, Some (DHKey s) -> assert (is_valid pr i k); k
-                         | _ -> assert (is_valid pr i k); k)
+             | Some (DHKey s), Some (DHKey s') -> assert (is_valid pr i k);
+                    assert (get_usage pr.key_usages k == pr.key_usages.dh_shared_secret_usage s s' k); 
+		    assert (exists sk'. (CryptoLib.dh_pk sk' == pk /\ is_publishable pr i sk') ==> is_publishable pr i k);
+                    pr.key_usages.dh_usage_commutes_lemma ();
+                    pr.key_usages.dh_unknown_peer_usage_lemma (); 
+                    k
+             | Some (DHKey s), _ | _, Some (DHKey s) -> assert (is_valid pr i k); k
+             | _ -> assert (is_valid pr i k); k)
     | _ -> k 
 
 let dh_lemma #pr #i #l sk pk = ()
 #pop-options
 
 (* Lemmas for is_publishable *)
+#push-options "--z3rlimit 25"
 let strings_are_publishable_forall c = ()
 let nats_are_publishable_forall c = ()
 let bytestrings_are_publishable_forall c = ()
+let nat_lbytes_are_publishable_forall c = ()
+let bools_are_publishable_forall c = ()
 let splittable_term_publishable_implies_components_publishable_forall c = ()
 let splittable_at_term_publishable_implies_components_publishable_forall c = ()
 let concatenation_publishable_implies_components_publishable_forall c = ()
+let raw_concatenation_publishable_implies_components_publishable_forall c = ()
 let public_key_is_publishable_if_private_key_is_publishable_forall c = ()
 let pke_ciphertext_publishable_if_key_and_msg_are_publishable_forall c = ()
 let pke_plaintext_publishable_if_key_and_ciphertext_publishable_forall c = ()
@@ -272,6 +304,27 @@ let expand_value_publishable_if_secrets_are_publishable_forall c = ()
 let extract_value_publishable_if_secrets_are_publishable_forall c = ()
 let hash_value_publishable_if_message_is_publishable_forall c = ()
 let dh_public_key_is_publishable_if_private_key_is_publishable_forall c = ()
-#push-options "--z3rlimit 10"
+#push-options "--z3rlimit 15"
 let dh_is_publishable_if_keys_are_publishable_forall c = ()
+let dh_is_publishable_if_private_and_public_keys_are_publishable_forall c = ()
 #pop-options
+
+let bytes_to_nat_successful_implies_publishable b = ()
+let bytes_to_string_successful_implies_publishable b = ()
+
+let components_publishable_implies_splittable_term_publishable gu = ()
+
+let splittable_term_flows_to_label_implies_components_flow_to_label_forall i ll p l t =
+    match C.split_len_prefixed ll t with
+    | Error e -> ()
+    | Success (t_part1, t_part2) -> (
+      match split_len_prefixed #p #i #l ll t with
+      | Error e -> ()
+      | Success (new_t_part1, new_t_part2) -> ()
+    )
+
+let rand_is_secret #i #l #u r = ()
+
+let rand_is_secret_forall_labels #i #u r = ()
+
+let restrict #pr #i #l1 t l2 = can_flow_transitive i (get_label pr.key_usages t) l1 l2; t

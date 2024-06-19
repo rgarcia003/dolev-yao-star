@@ -16,6 +16,8 @@ let is_valid p ts b = True
 
 let is_valid_later pr i j t = ()
 
+let is_msg_with_correct_order_compatible p l i = ()
+
 let empty #pr #i = empty
 
 let empty_lemma #p #i = ()
@@ -23,10 +25,6 @@ let empty_lemma #p #i = ()
 let len #p #i #l b = len b
 
 let len_lemma #p #i #l b = ()
-
-let restrict #p #i #l1 t l2 =  t
-
-let rand_is_secret #p #i #l #u r = admit()
 
 let string_to_bytes #p #i  s = string_to_bytes s
 
@@ -52,6 +50,21 @@ let bytes_to_bytestring #p #i s = bytes_to_bytestring s
 
 let bytes_to_bytestring_lemma #p #i b = ()
 
+let nat_lbytes_to_bytes sz x = nat_lbytes_to_bytes sz x
+
+let nat_lbytes_to_bytes_lemma sz x = ()
+
+let bytes_to_nat_lbytes b = bytes_to_nat_lbytes b
+
+let bytes_to_nat_lbytes_lemma b = ()
+let bool_to_bytes #p #i s = bool_to_bytes s
+
+let bool_to_bytes_lemma #p #i s = ()
+
+let bytes_to_bool #p #i s = bytes_to_bool s
+
+let bytes_to_bool_lemma #p #i b = ()
+
 let concat_len_prefixed ll t1 t2 = concat_len_prefixed ll t1 t2
 
 let concat_len_prefixed_lemma ll t1 t2 = ()
@@ -67,6 +80,10 @@ let concat_lemma t1 t2 = ()
 let split t = split t
 
 let split_lemma t = ()
+
+let raw_concat b1 b2 = raw_concat b1 b2
+
+let raw_concat_lemma b1 b2 = ()
 
 let split_at l t = split_at l t
 
@@ -112,6 +129,10 @@ let mac k m = mac k m
 
 let mac_lemma k m = ()
 
+let verify_mac k m t = verify_mac k m t
+
+let verify_mac_lemma k m t = ()
+
 let hash m = hash m
 
 let hash_lemma m = ()
@@ -141,9 +162,12 @@ let dh_lemma sk pk = ()
 let strings_are_publishable_forall c = ()
 let nats_are_publishable_forall c = ()
 let bytestrings_are_publishable_forall c = ()
+let nat_lbytes_are_publishable_forall c = ()
+let bools_are_publishable_forall c = ()
 let splittable_term_publishable_implies_components_publishable_forall c = ()
 let splittable_at_term_publishable_implies_components_publishable_forall c = ()
 let concatenation_publishable_implies_components_publishable_forall c = ()
+let raw_concatenation_publishable_implies_components_publishable_forall c = ()
 let public_key_is_publishable_if_private_key_is_publishable_forall c = ()
 let pke_ciphertext_publishable_if_key_and_msg_are_publishable_forall c = ()
 let pke_plaintext_publishable_if_key_and_ciphertext_publishable_forall c = ()
@@ -157,3 +181,24 @@ let extract_value_publishable_if_secrets_are_publishable_forall c = ()
 let hash_value_publishable_if_message_is_publishable_forall c = ()
 let dh_public_key_is_publishable_if_private_key_is_publishable_forall c = ()
 let dh_is_publishable_if_keys_are_publishable_forall c = ()
+let dh_is_publishable_if_private_and_public_keys_are_publishable_forall c = ()
+
+let bytes_to_nat_successful_implies_publishable b = ()
+let bytes_to_string_successful_implies_publishable b = ()
+
+let components_publishable_implies_splittable_term_publishable gu = ()
+
+let splittable_term_flows_to_label_implies_components_flow_to_label_forall i ll p l t =
+    match C.split_len_prefixed ll t with
+    | Error e -> ()
+    | Success (t_part1, t_part2) -> (
+      match split_len_prefixed #p #i #l ll t with
+      | Error e -> ()
+      | Success (new_t_part1, new_t_part2) -> ()
+    )
+
+let rand_is_secret #p #i #l #u r = admit()
+
+let rand_is_secret_forall_labels #p #i #u r = admit()
+
+let restrict #p #i #l1 t l2 =  t

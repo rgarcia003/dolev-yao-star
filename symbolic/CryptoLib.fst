@@ -70,6 +70,8 @@ type literal =
  | ByteSeq of FStar.Seq.seq FStar.UInt8.t
  | String of string
  | Nat of nat
+ | SizedNat: sz:nat -> nat_lbytes sz -> literal
+ | Bool of bool
 
 
 type bytes_ =
@@ -92,24 +94,26 @@ type bytes_ =
    The main use of this is to define the equality of terms when using symbolic terms like DH, XOR.
 *)
 
-let rec bytes_to_list_int (t:bytes_) : list int =
+let rec bytes_to_list_int (t:bytes_) : list nat =
   match t with
   | Literal (ByteSeq b) -> 0::seq_u8_to_list_int b
-  | Literal (String b) -> 1::string_to_list_int b
-  | Literal (Nat b) -> 2::[b]
-  | Rand n l u -> 3::n::lconcat (label_to_list_int l) (usage_to_list_int u)
-  | Concat b1 b2 -> 4 :: lconcat (bytes_to_list_int b1) (bytes_to_list_int b2)
-  | PK s -> 5 :: bytes_to_list_int s
-  | PKEnc p n m ->  6 :: lconcat (lconcat (bytes_to_list_int p) (bytes_to_list_int n))  (bytes_to_list_int m)
-  | Extract k s -> 7 :: lconcat (bytes_to_list_int k) (bytes_to_list_int s)
-  | Expand k i -> 8 :: lconcat (bytes_to_list_int k) (bytes_to_list_int i)
-  | AEnc k iv m ad -> 9 :: lconcat (lconcat (lconcat (bytes_to_list_int k) (bytes_to_list_int iv)) (bytes_to_list_int m))  (bytes_to_list_int ad)
-  | VK s -> 10 :: bytes_to_list_int s
-  | Sig sk n m -> 11 :: lconcat (lconcat (bytes_to_list_int sk) (bytes_to_list_int n))  (bytes_to_list_int m)
-  | Mac k m -> 12 :: lconcat (bytes_to_list_int k) (bytes_to_list_int m)
-  | Hash m -> 13:: bytes_to_list_int m
-  | DH_PK s -> 14:: bytes_to_list_int s
-  | DH k p -> 15 :: lconcat (bytes_to_list_int k) (bytes_to_list_int p)
+  | Literal (String b) -> 10::string_to_list_int b
+  | Literal (Nat b) -> 20::[b]
+  | Literal (SizedNat sz b) -> 30::[sz;b]
+  | Literal (Bool b) -> if b then 30::[1] else 3::[0]
+  | Rand n l u -> 40::n::lconcat (label_to_list_int l) (usage_to_list_int u)
+  | Concat b1 b2 -> 50 :: lconcat (bytes_to_list_int b1) (bytes_to_list_int b2)
+  | PK s -> 60 :: bytes_to_list_int s
+  | PKEnc p n m ->  70 :: lconcat (lconcat (bytes_to_list_int p) (bytes_to_list_int n))  (bytes_to_list_int m)
+  | Extract k s -> 80 :: lconcat (bytes_to_list_int k) (bytes_to_list_int s)
+  | Expand k i -> 90 :: lconcat (bytes_to_list_int k) (bytes_to_list_int i)
+  | AEnc k iv m ad -> 100 :: lconcat (lconcat (lconcat (bytes_to_list_int k) (bytes_to_list_int iv)) (bytes_to_list_int m))  (bytes_to_list_int ad)
+  | VK s -> 110 :: bytes_to_list_int s
+  | Sig sk n m -> 120 :: lconcat (lconcat (bytes_to_list_int sk) (bytes_to_list_int n))  (bytes_to_list_int m)
+  | Mac k m -> 130 :: lconcat (bytes_to_list_int k) (bytes_to_list_int m)
+  | Hash m -> 140:: bytes_to_list_int m
+  | DH_PK s -> 150:: bytes_to_list_int s
+  | DH k p -> 160 :: lconcat (bytes_to_list_int k) (bytes_to_list_int p)
 
 #push-options "--z3rlimit 50"
 let rec bytes_to_list_int_inj (t1 t2:bytes_) :
@@ -118,16 +122,27 @@ let rec bytes_to_list_int_inj (t1 t2:bytes_) :
   | Literal (ByteSeq b1), Literal (ByteSeq b2) -> seq_u8_to_list_int_inj b1 b2
   | Literal (String b1), Literal (String b2) -> string_to_list_int_inj b1 b2
   | Literal (Nat n1), Literal (Nat n2) -> ()
-  | Rand n1 l1 u1, Rand n2 l2 u2 -> label_to_list_int_inj l1 l2; usage_to_list_int_inj u1 u2
+  | Rand n1 l1 u1, Rand n2 l2 u2 -> label_to_list_int_inj l1 l2; usage_to_list_int_inj u1 u2;
+    append_list_lconcat_length_lemma (label_to_list_int l1) (usage_to_list_int u1) (label_to_list_int l2) (usage_to_list_int u2)
   | PK b1, PK b2 | VK b1, VK b2 | Hash b1, Hash b2 | DH_PK b1, DH_PK b2 -> bytes_to_list_int_inj b1 b2
   | Concat b1 b2, Concat b1' b2'
   | Extract b1 b2, Extract b1' b2' | Expand b1 b2 , Expand b1' b2'
   | Mac b1 b2, Mac b1' b2' | DH b1 b2, DH b1' b2' ->
-    bytes_to_list_int_inj b1 b1'; bytes_to_list_int_inj b2 b2'
+    bytes_to_list_int_inj b1 b1'; bytes_to_list_int_inj b2 b2';
+    append_list_lconcat_length_lemma (bytes_to_list_int b1) (bytes_to_list_int b2) (bytes_to_list_int b1') (bytes_to_list_int b2') 
   | PKEnc b1 b2 b3, PKEnc b1' b2' b3' | Sig b1 b2 b3, Sig b1' b2' b3' ->
-    bytes_to_list_int_inj b1 b1'; bytes_to_list_int_inj b2 b2'; bytes_to_list_int_inj b3 b3'
+    bytes_to_list_int_inj b1 b1'; bytes_to_list_int_inj b2 b2'; bytes_to_list_int_inj b3 b3';
+    append_list_lconcat_length_lemma (bytes_to_list_int b1) (bytes_to_list_int b2) (bytes_to_list_int b1') (bytes_to_list_int b2');
+    append_list_lconcat_length_lemma (lconcat (bytes_to_list_int b1) (bytes_to_list_int b2)) (bytes_to_list_int b3) 
+				     (lconcat (bytes_to_list_int b1') (bytes_to_list_int b2')) (bytes_to_list_int b3')
+				     
   | AEnc k1 iv1 m1 ad1, AEnc k2 iv2 m2 ad2 ->
-    bytes_to_list_int_inj k1 k2; bytes_to_list_int_inj iv1 iv2; bytes_to_list_int_inj m1 m2; bytes_to_list_int_inj ad1 ad2
+    bytes_to_list_int_inj k1 k2; bytes_to_list_int_inj iv1 iv2; bytes_to_list_int_inj m1 m2; bytes_to_list_int_inj ad1 ad2;
+    append_list_lconcat_length_lemma (bytes_to_list_int k1) (bytes_to_list_int iv1) (bytes_to_list_int k2) (bytes_to_list_int iv2);
+    append_list_lconcat_length_lemma (lconcat (bytes_to_list_int k1) (bytes_to_list_int iv1)) (bytes_to_list_int m1) 
+				     (lconcat (bytes_to_list_int k2) (bytes_to_list_int iv2)) (bytes_to_list_int m2);
+    append_list_lconcat_length_lemma (lconcat (lconcat (bytes_to_list_int k1) (bytes_to_list_int iv1)) (bytes_to_list_int m1)) (bytes_to_list_int ad1)
+				     (lconcat (lconcat (bytes_to_list_int k2) (bytes_to_list_int iv2)) (bytes_to_list_int m2)) (bytes_to_list_int ad2)
   | _, _ -> ()
 #pop-options
 instance bytes_comparable : comparable bytes_ = {
@@ -138,8 +153,44 @@ instance bytes_comparable : comparable bytes_ = {
 let bytes_le = le bytes_comparable
 
 let bytes = b:bytes_{hasEq bytes_}
+
+
+let pk_len _ : pos = 1
+let rand_len _ _ : pos = 1
+let pke_enc_len _ _ _ : pos = 1
+let extract_len _ _ : pos = 1
+let expand_len _ _ : pos = 1
+let aead_len _ _ _ _ : pos = 1
+let vk_len _ : pos = 1
+let sign_len _ _ _ : pos = 1
+let mac_len _ _ : pos = 1
+let hash_len _ : pos = 1
+let dh_pk_len _ : pos = 1
+let dh_len _ _ : pos = 1
+
+let rec len b =
+  match b with
+  | Literal (ByteSeq s) -> Seq.length s
+  | Literal (String s) -> FStar.String.length s
+  | Literal (Nat n) -> n+1 //TODO?
+  | Literal (SizedNat sz n) -> sz
+  | Literal (Bool b) -> 1 // TODO ?
+  | Rand i l u -> rand_len l u
+  | Concat b1 b2 -> (len b1) + (len b2)
+  | PK b -> pk_len b
+  | PKEnc pk nonce msg -> pke_enc_len pk nonce msg
+  | Extract key salt -> extract_len key salt
+  | Expand key info -> expand_len key info
+  | AEnc k iv msg ad -> aead_len k iv msg ad
+  | VK secret -> vk_len secret
+  | Sig sk nonce msg -> sign_len sk nonce msg
+  | Mac k msg -> mac_len k msg
+  | Hash m -> hash_len m
+  | DH_PK s -> dh_pk_len s
+  | DH k s -> dh_len k s
+
 let empty = Literal (ByteSeq Seq.empty)
-let len b = 0
+let len_empty () = ()
 
 let sprint_usage u =
   match u with
@@ -157,6 +208,8 @@ let sprint_literal l =
   | ByteSeq bs -> String.concat "" (List.Tot.map UInt8.to_string_hex_pad (Seq.seq_to_list bs))
   | String s -> s
   | Nat n -> FStar.UInt32.to_string (FStar.UInt32.uint_to_t (n % pow2 32))
+  | SizedNat sz n -> FStar.UInt32.to_string (FStar.UInt32.uint_to_t (n % pow2 32)) //TODO?
+  | Bool b -> if b then "true" else "false"
 
 let rec sprint_bytes t =
   match t with
@@ -219,6 +272,8 @@ let bytes_to_string b = match bytes_to_literal b with
   | Success(String s) -> Success s
   | _ -> Error "not a string"
 let string_to_bytes_lemma s = ()
+let string_to_bytes_len s = ()
+let bytes_to_string_lemma b = ()
 
 let nat_to_bytes len s = literal_to_bytes (Nat s)
 let bytes_to_nat b = match bytes_to_literal b with
@@ -226,12 +281,30 @@ let bytes_to_nat b = match bytes_to_literal b with
   | _ -> Error "not a nat"
 let nat_to_bytes_lemma len s = ()
 
+let bytes_to_nat_lemma len b = ()
+
+let bytes_to_string_of_nat_to_bytes_error n = ()
+
 let bytestring_to_bytes s = literal_to_bytes (ByteSeq s)
 let bytes_to_bytestring b = match bytes_to_literal b with
   | Success(ByteSeq s) -> Success s
   | _ -> Error "not a string"
 let bytestring_to_bytes_lemma s = ()
 
+let nat_lbytes_to_bytes sz n = literal_to_bytes (SizedNat sz n)
+let bytes_to_nat_lbytes b = match bytes_to_literal b with
+  | Success(SizedNat sz x) -> assert(sz == len b); Success x
+  | _ -> Error "not a sized nat"
+
+let nat_lbytes_to_bytes_to_nat_lbytes sz n = ()
+
+let bytes_to_nat_lbytes_to_bytes b = ()
+let bool_to_bytes s = literal_to_bytes (Bool s)
+let bytes_to_bool b = match bytes_to_literal b with
+  | Success(Bool s) -> Success s
+  | _ -> Error "not a bool"
+let bool_to_bytes_lemma s = ()
+let bytes_to_bool_lemma b = ()
 
 (* A ghost function representing results of  RNG calls *)
 let g_rand i l u = Rand i l u
@@ -254,10 +327,25 @@ let split b = split_len_prefixed 4 b
 
 let split_concat_lemma a b = ()
 let concat_split_lemma b = ()
+let split_based_on_split_len_prefixed_lemma b = ()
+let concat_not_equal_string_to_bytes_lemma () = ()
+let concat_uniqueness_lemma () = ()
 
-let raw_concat b1 b2 = concat_len_prefixed 0 b1 b2
-let split_at l b = split_len_prefixed 0 b
+let raw_concat b1 b2 = Concat b1 b2
+let len_raw_concat b1 b2 = ()
+
+let split_at l b =
+  match b with
+  | Concat b1 b2 ->
+    if len b1 = l then
+      Success (b1, b2)
+    else
+      Error "split_at: lhs has wrong length"
+  | _ -> Error "split_at: not a concat"
+
+let len_split_at l b = ()
 let split_at_raw_concat_lemma a b = ()
+let raw_concat_split_at_lemma l b = ()
 
 let pk s = (PK s)
 let pk_inj_lemma t1 t2 = ()
@@ -277,6 +365,8 @@ let pke_dec_lemma s c =
       assert (c == pke_enc (PK s) n m)
     else ()
   | _ -> ()
+
+let concat_not_equal_pke_enc_lemma () = ()
 
 let aead_enc k iv p ad = AEnc k iv p ad
 let aead_dec k iv c ad =
@@ -298,6 +388,10 @@ let inv_aead_enc_lemma c =
   match c with
   | AEnc k iv p ad -> assert (c == AEnc k iv p ad); assert (inv_aead_enc c == Success (k, iv, p, ad)); ()
   | _ -> ()
+
+let aead_uniqueness_lemma () = ()
+let concat_not_equal_aead_enc_lemma () = ()
+let pke_enc_not_equal_aead_enc_lemma () = ()
 
 let vk s = (VK s)
 let vk_inj_lemma s s' = ()
@@ -370,4 +464,3 @@ let dh_inj_lemma sk1 sk2 pk1 pk2 = ()
 let dh_shared_secret_lemma x y =
     le_totality_lemma bytes_comparable x y;
     le_anti_symmetry_lemma bytes_comparable x y
-

@@ -36,6 +36,7 @@ val responder_receive_msg_1_helper:
 			  (is_publishable nsl_global_usage i n_a \/
 			  (was_rand_generated_before i n_a (readers [P a;P b]) (nonce_usage "NSL.nonce")))))
 
+#push-options "--z3rlimit 25"
 let responder_receive_msg_1_helper #i b c_msg1 skb =
   match pke_dec #nsl_global_usage #i #(readers [P b]) skb c_msg1 with
   | Success msg1 ->
@@ -50,6 +51,7 @@ let responder_receive_msg_1_helper #i b c_msg1 skb =
       (a, n_a)
     | _ -> error "wrong msg_1 tag")
   | _ -> error "decrypt failed"
+#pop-options
 
 
 val responder_send_msg_2_helper:
@@ -95,11 +97,12 @@ let responder_send_msg_2 b msg_idx =
   let now = send #nsl #t2 b a c_msg2 in
   (si, now)
 
-let n_b_pred i a b n_a n_b =
+let n_b_pred i a b n_a n_b :prop =
 	((is_publishable nsl_global_usage i n_b /\ (corrupt_id i (P a) \/ corrupt_id i (P b))) \/
 	  (did_event_occur_before i b (respond a b n_a n_b)) /\
 	    was_rand_generated_before i n_b (readers [P a;P b]) (nonce_usage "NSL.nonce"))
 
+#push-options "--z3rlimit 25"
 let initiator_receive_msg_2_helper (i:nat) (a:principal) (b:principal) (c_msg2:msg i public)
 				   (ska:priv_key i a) (n_a:ns_nonce i a b) :
     LCrypto (msg i (readers [P a])) (pki nsl) (requires (fun _ -> True)) (ensures (fun t0 (n_b) t1 -> n_b_pred i a b n_a n_b))
@@ -116,7 +119,9 @@ let initiator_receive_msg_2_helper (i:nat) (a:principal) (b:principal) (c_msg2:m
       else error "n_a or b did not match"
     | _ -> error "wrong msg_2 tag")
   | _ -> error "decrypt failed"
-  
+#pop-options
+
+#push-options "--z3rlimit 25"
 let initiator_send_msg_3_helper (#i:nat) (a:principal) (b:principal) (pkb: pub_key i b) (n_a: ns_nonce i a b)
     (n_b: msg i (readers [P a]){did_event_occur_before i a (finishI a b n_a n_b) /\ n_b_pred i a b n_a n_b})
     (n_pke: pke_nonce nsl_global_usage i (readers [P a]))
@@ -131,6 +136,7 @@ let initiator_send_msg_3_helper (#i:nat) (a:principal) (b:principal) (pkb: pub_k
   assert (get_label nsl_key_usages msg3'' == get_label nsl_key_usages msg3);
   sk_label_lemma nsl_global_usage i pkb (readers [P b]);
   pke_enc #nsl_global_usage #i pkb n_pke msg3'
+#pop-options
 
 #push-options "--z3rlimit 100"
 
@@ -156,6 +162,7 @@ let initiator_send_msg_3 a idx_init_session msg_idx =
     now
   | _ -> error "parse error"
   
+#restart-solver
 let responder_receive_msg_3_helper (#i: nat) (b: principal) (a: principal) (c_msg3: msg i public) (skb: priv_key i b) (n_b: ns_nonce i a b) :
     LCrypto unit (pki nsl) (requires (fun _ -> True)) (ensures fun t0 _ t1 -> corrupt_id i (P a) \/ corrupt_id i (P b) \/
 								     (exists n_a. did_event_occur_before i a (finishI a b n_a n_b)))

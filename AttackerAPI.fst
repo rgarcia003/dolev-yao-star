@@ -21,8 +21,10 @@ let rec attacker_can_derive (i:timestamp) (steps:nat) (t:bytes):
         query_result idx_state corrupted_principal sess_idx sess_ver t /\
         was_corrupted_before i corrupted_principal sess_idx sess_ver) \/
     (* Attacker can call from_pub_bytes, i.e., can derive constants *)
+      t == empty \/
       (exists (s:string). t == string_to_bytes s) \/
       (exists (len s:nat). t == nat_to_bytes len s) \/
+      (exists sz x. t == nat_lbytes_to_bytes sz x) \/
       (exists (s:bytestring). t == bytestring_to_bytes s))
   else (
       // Just reduce steps by one
@@ -30,6 +32,10 @@ let rec attacker_can_derive (i:timestamp) (steps:nat) (t:bytes):
       // Attacker can concatenate bytes
       (exists (ll:nat) (t1 t2:bytes).
         t == concat_len_prefixed ll t1 t2 /\
+        attacker_can_derive i (steps - 1) t1 /\
+        attacker_can_derive i (steps - 1) t2) \/
+      (exists (t1 t2:bytes).
+        t == raw_concat t1 t2 /\
         attacker_can_derive i (steps - 1) t1 /\
         attacker_can_derive i (steps - 1) t2) \/
       // Attacker can construct public key from private key
@@ -99,8 +105,11 @@ let rec attacker_can_derive (i:timestamp) (steps:nat) (t:bytes):
         attacker_can_derive i (steps - 1) t3 /\
         attacker_can_derive i (steps - 1) t4) \/
       // DH
+      (exists (t1 :bytes).
+        t == (dh_pk t1) /\
+        attacker_can_derive i (steps - 1) t1) \/
       (exists (t1 t2:bytes).
-        t == (dh t1 (dh_pk t2)) /\
+        t == (dh t1 t2) /\
         attacker_can_derive i (steps - 1) t1 /\
         attacker_can_derive i (steps - 1) t2))
 
@@ -113,11 +122,63 @@ let rec attacker_can_derive_in_more_steps i steps1 steps2 =
   else if steps1 = steps2 then ()
        else (attacker_can_derive_in_more_steps i steps1 (steps2 - 1))
 
+
+
 #push-options "--z3rlimit 50"
 let rec attacker_can_derive_later i steps j =
   if steps = 0 then ()
   else (attacker_can_derive_later i (steps - 1) j)
 #pop-options
+
+let attacker_can_derive_empty i = ()
+
+let max a b =
+ if a >= b then a else b
+
+let attacker_can_derive_concat_in_same_steps i a b :
+  Lemma (forall s. attacker_can_derive i s a /\ attacker_can_derive i s b ==> attacker_can_derive i (s+1) (raw_concat a b))
+  = ()
+
+let attacker_can_derive_concat_in_diff_steps i (sa:nat) a (sb:nat) b :
+  Lemma
+    (requires (attacker_can_derive i sa a /\ attacker_can_derive i sb b
+    ))
+    (ensures attacker_can_derive i ((max sa sb) + 1) (raw_concat a b) )
+  = let m = max sa sb in
+  attacker_can_derive_in_more_steps i sa m;
+  attacker_can_derive_in_more_steps i sb m;
+  assert(attacker_can_derive i m a /\ attacker_can_derive i m b);
+  attacker_can_derive_concat_in_same_steps i a b
+
+let attacker_can_derive_concat i a b :
+  Lemma (forall sa sb. attacker_can_derive i sa a /\ attacker_can_derive i sb b ==> attacker_can_derive i (max sa sb + 1) (raw_concat a b))
+= introduce forall sa sb. attacker_can_derive i sa a /\ attacker_can_derive i sb b ==> attacker_can_derive i (max sa sb + 1) (raw_concat a b)
+ with
+   begin
+     introduce attacker_can_derive i sa a /\ attacker_can_derive i sb b ==> attacker_can_derive i (max sa sb + 1) (raw_concat a b)
+     with _ . attacker_can_derive_concat_in_diff_steps i sa a sb b
+   end
+
+let attacker_can_derive_split_left i l t1 t :
+  Lemma
+    (requires Success? (split_at l t1)
+      /\ fst (Success?.v (split_at l t1)) == t )
+   (ensures forall s. attacker_can_derive i s t1 ==> attacker_can_derive i (s+1) t)
+  = let Success (t,t2) = (split_at l t1) in
+    assert(is_succ2 (split_at l t1) t t2)
+
+let attacker_can_derive_split_right i l t1 t :
+  Lemma
+    (requires Success? (split_at l t1)
+      /\ snd (Success?.v (split_at l t1)) == t )
+   (ensures forall s. attacker_can_derive i s t1 ==> attacker_can_derive i (s+1) t)
+  = let Success (t2,t) = (split_at l t1) in
+    assert(is_succ2 (split_at l t1) t2 t)
+
+
+let attacker_can_derive_from_nat i sz n :
+  Lemma (attacker_can_derive i 0 (nat_lbytes_to_bytes sz n))
+= ()
 
 let attacker_knows_later i j =
   let attacker_knows_later_steps (steps:nat) (a:bytes):
@@ -125,6 +186,39 @@ let attacker_knows_later i j =
           [SMTPat (attacker_can_derive i steps a); SMTPat (attacker_can_derive j steps a)] =
           attacker_can_derive_later i steps j in
   ()
+
+
+let attacker_knows_empty i = attacker_can_derive_empty i
+
+let attacker_knows_concat i a b =
+  introduce attacker_knows_at i a /\ attacker_knows_at i b
+    ==> attacker_knows_at i (raw_concat a b)
+  with _ .
+    begin
+      eliminate exists sa sb. attacker_can_derive i sa a /\ attacker_can_derive i sb b
+      returns attacker_knows_at i (raw_concat a b)
+      with _ . attacker_can_derive_concat_in_diff_steps i sa a sb b
+    end
+
+let attacker_knows_split_left i l t1 t :
+  Lemma
+    (requires Success? (split_at l t1) /\ fst (Success?.v (split_at l t1)) = t)
+    (ensures attacker_knows_at i t1 ==> attacker_knows_at i t)
+= attacker_can_derive_split_left i l t1 t
+
+let attacker_knows_split_right i l t1 t :
+  Lemma
+    (requires Success? (split_at l t1) /\ snd (Success?.v (split_at l t1)) = t)
+    (ensures attacker_knows_at i t1 ==> attacker_knows_at i t)
+= attacker_can_derive_split_right i l t1 t
+
+let attacker_knows_split i l b
+= let Success (t1,t2) = split_at l b in
+  attacker_knows_split_left i l b t1;
+  attacker_knows_split_right i l b t2
+
+let attacker_knows_from_nat i sz n
+= attacker_can_derive_from_nat i sz n
 
 let string_to_pub_bytes s = string_to_bytes s
 let string_to_pub_bytes_lemma t = ()
@@ -141,8 +235,10 @@ let bytestring_to_pub_bytes_lemma t = ()
 let pub_bytes_to_bytestring #i t = bytes_to_bytestring t
 let pub_bytes_to_bytestring_lemma #i t = ()
 
-
-let max a b = if a < b then b else a
+let nat_lbytes_to_pub_bytes sz x = nat_lbytes_to_bytes sz x
+let nat_lbytes_to_pub_bytes_lemma sz x = ()
+let pub_bytes_to_nat_lbytes b = bytes_to_nat_lbytes b
+let pub_bytes_to_nat_lbytes_lemma b = ()
 
 #push-options "--z3rlimit 100"
 val meet_derives: i:timestamp -> j:timestamp -> steps1:nat -> steps2:nat -> t1:bytes -> t2:bytes ->
@@ -230,6 +326,21 @@ let split_len_prefixed #i ll t =
     Success (a1,a2))
   | Error s -> (assert (match split_len_prefixed ll t with | Error s -> True | Success _ -> False); Error s)
 let split_len_prefixed_lemma #i ll t = ()
+
+let raw_concat t1 t2 =
+  let raw_concat_pub_lemma0 (i:timestamp) (t1:bytes) (t2:bytes) (steps:nat) :
+  Lemma (requires (attacker_can_derive i steps t1 /\ attacker_can_derive i steps t2))
+        (ensures (attacker_can_derive i (steps + 1) (raw_concat t1 t2))) = () in
+  let raw_concat_pub_lemma (i j:timestamp) (t1:bytes) (t2:bytes) (steps1:nat) (steps2:nat) :
+  Lemma (requires (attacker_can_derive i steps1 t1 /\ attacker_can_derive j steps2 t2))
+        (ensures (attacker_can_derive (max i j) (max steps1 steps2 + 1) (raw_concat t1 t2)))
+        [SMTPat (attacker_can_derive i steps1 t1); SMTPat (attacker_can_derive j steps2 t2);
+         SMTPat (raw_concat t1 t2)] =
+        meet_derives i j steps1 steps2 t1 t2;
+        raw_concat_pub_lemma0 (max i j) t1 t2 (max steps1 steps2);
+        assert (attacker_can_derive (max i j) (max steps1 steps2 + 1) (raw_concat t1 t2)) in
+  raw_concat t1 t2
+let raw_concat_lemma t1 t2 = ()
 
 let split_at #i l t =
   let split_pub_lemma1 (i:timestamp) (ll:nat) (a1:bytes) (a:bytes) (a2:bytes) (steps:nat) :
@@ -411,6 +522,42 @@ let hash #i t1 =
   hash t1
 let hash_lemma #i t1 = ()
 
+let dh_pk #i t1 =
+  let dh_pk_pub_lemma0 (i:timestamp) (t1:bytes) (steps:nat) :
+  Lemma (requires (attacker_can_derive i steps t1))
+        (ensures (attacker_can_derive i (steps + 1) (dh_pk t1)))
+         = () in
+  let dh_pk_pub_lemma (i:timestamp) (t1:bytes) (steps:nat) :
+  Lemma (requires (attacker_can_derive i steps t1))
+        (ensures (attacker_can_derive i (steps + 1) (dh_pk t1)))
+        [SMTPat (attacker_can_derive i steps t1)] =
+         dh_pk_pub_lemma0 i t1 steps in
+  dh_pk t1
+
+let dh_pk_lemma #i t1 = ()
+
+let dh #i priv_component pub_component =
+  let dh_pub_lemma0 (i:timestamp) (t1:bytes) (t2:bytes) (steps1:nat) (steps2:nat):
+  Lemma (requires (attacker_can_derive i steps1 t1) /\ (attacker_can_derive i steps2 t2))
+        (ensures (attacker_can_derive i ((max steps1 steps2) + 1) (dh t1 t2)))
+         =
+          let max_steps = (max steps1 steps2) in
+          attacker_can_derive_in_more_steps i steps1 (max_steps);
+          attacker_can_derive_in_more_steps i steps2 (max_steps);
+          assert((attacker_can_derive i (max_steps) t1));
+          assert((attacker_can_derive i (max_steps) t2));
+          () in
+  let dh_pub_lemma (i:timestamp) (t1:bytes) (t2:bytes) (steps1:nat) (steps2:nat):
+  Lemma (requires (attacker_can_derive i steps1 t1) /\ (attacker_can_derive i steps2 t2))
+        (ensures (attacker_can_derive i ((max steps1 steps2) + 1) (dh t1 t2)))
+        [SMTPat (attacker_can_derive i steps1 t1); SMTPat (attacker_can_derive i steps2 t2)]
+        = dh_pub_lemma0 i t1 t2 steps1 steps2 in
+  dh priv_component pub_component
+
+
+let dh_lemma #i priv_component pub_component = ()
+
+
 let global_timestamp () = global_timestamp ()
 
 #push-options "--max_ifuel 2 --z3rlimit 200"
@@ -455,3 +602,9 @@ let query_state_i idx_state idx_corrupt idx_query p si sv =
     attacker_can_query_compromised_state idx_state idx_corrupt idx_query p si sv res;
     res
 
+let query_state #now idx_corrupt p si sv =
+  match get_last_state_before (now-1) p with
+  | Some (idx_state, _, _) -> (
+    query_state_i idx_state idx_corrupt now p si sv
+  )
+  | _ -> error ("No state to query found for " ^ p)

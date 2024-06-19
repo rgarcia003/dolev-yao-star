@@ -140,7 +140,7 @@ let trace_entry_at_pred (n:timestamp) (e:entry_t) : (p:trace_pred{stable p}) =
 
 (** Checks whether [entry] can be found at [trace_index] in the trace. This is a witnessing of the
 trace_entry_at_pred*)
-let trace_entry_at trace_index entry = witnessed (trace_entry_at_pred trace_index entry)
+let trace_entry_at trace_index entry = witnessed (trace_entry_at_pred trace_index entry) (* convert to prop *) /\ True
 
 val trace_entry_at_pred_injective (n:timestamp) (e1:entry_t) (e2:entry_t) :
   Lemma (forall t. (trace_entry_at_pred n e1 t /\ trace_entry_at_pred n e2 t) ==> e1 == e2)

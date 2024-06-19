@@ -14,30 +14,30 @@ open CryptoEffect
 /// These predicates can (only) be used in specifications to formulate pre- and postconditions
 /// involving the trace.
 unfold
-let was_rand_generated_at (trace_index:timestamp) (r:bytes) (label:label) (usage:usage) =
+let was_rand_generated_at (trace_index:timestamp) (r:bytes) (label:label) (usage:usage): prop =
   trace_entry_at trace_index (RandGen r label usage) /\ r == g_rand trace_index label usage
 
-let was_rand_generated_before (j:timestamp) (t:bytes) (l:label) (u:usage) =
+let was_rand_generated_before (j:timestamp) (t:bytes) (l:label) (u:usage): prop =
   exists (trace_index:timestamp). trace_index <= j /\ was_rand_generated_at trace_index t l u
 
-let did_event_occur_at trace_index p (ev,tl) =
+let did_event_occur_at trace_index p (ev,tl): prop =
     trace_entry_at trace_index (Event p (ev,tl))
 
-let did_event_occur_before (j:timestamp) p (ev,tl) =
+let did_event_occur_before (j:timestamp) p (ev,tl): prop =
   exists trace_index. trace_index < j /\ did_event_occur_at trace_index p (ev,tl)
 
-let was_message_sent_at trace_index p1 p2 t =
+let was_message_sent_at trace_index p1 p2 t: prop =
     trace_entry_at trace_index (Message p1 p2 t)
 
-let was_message_sent_before j p1 p2 t =
+let was_message_sent_before j p1 p2 t: prop =
   exists i. i <= j /\ trace_entry_at i (Message p1 p2 t)
 
-let state_was_set_at trace_index principal v new_state =
+let state_was_set_at trace_index principal v new_state: prop =
   trace_entry_at trace_index (SetState principal v new_state)
 
-let was_corrupted_at trace_index p s v = trace_entry_at trace_index (Corrupt p s v)
+let was_corrupted_at trace_index p s v: prop = trace_entry_at trace_index (Corrupt p s v)
 
-let was_corrupted_before trace_index p s v =
+let was_corrupted_before trace_index p s v: prop =
   (exists idx'. idx' <= trace_index /\ was_corrupted_at idx' p s v)
 
 
@@ -74,7 +74,7 @@ val error: #a:Type -> e:string -> Crypto a
 /// ---------------------------
 (* Local abbreviations *)
 type event = CryptoEffect.event
-type trace_len = CryptoEffect.trace_len
+let trace_len = CryptoEffect.trace_len
 
 (* A notion of global timestamps defined as the length of the global trace *)
 val global_timestamp: unit -> Crypto timestamp
@@ -142,7 +142,7 @@ val receive_i: send_index:timestamp -> receiver:principal -> Crypto (claimed_sen
 /// session state inside one type, this would be harder to model.
 (** Set the internal state [s] of a principal [p] with version vector [v]. *)
 val set_state: p:principal -> v:version_vec -> s:state_vec -> Crypto unit
-                      (requires (fun t0 -> trace_len v = trace_len s))
+                      (requires (fun t0 -> Seq.length v = Seq.length s))
                       (ensures (fun t0 trace_index t1 ->
                         match trace_index with
                         | Error _ -> t0 == t1

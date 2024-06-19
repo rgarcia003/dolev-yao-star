@@ -25,9 +25,9 @@ val parse_sigval: bytes -> result sigval
 (* Global Key Usages *)
 let isokem_key_usages : A.key_usages = A.default_key_usages
 
-let ppred i s pk m = True
-let apred i s k m ad = True
-let spred i s k m =
+let ppred i s pk m: prop = True
+let apred i s k m ad: prop = True
+let spred i s k m: prop =
     s == "ISOKem.sig_key" /\
     (exists p. A.get_signkey_label isokem_key_usages k == readers [P p] /\
 	(match parse_sigval m with
@@ -36,7 +36,7 @@ let spred i s k m =
 	 | Success (SigMsg3 b gx gy) ->
 	   (exists k n. gy == (pke_enc gx n k) /\ did_event_occur_before i p (finishI p b gx gy k))
 	 | _ -> False))
-let mpred i s k m = True
+let mpred i s k m: prop = True
 
 let isokem_usage_preds : A.usage_preds = {
   A.can_pke_encrypt = ppred;
