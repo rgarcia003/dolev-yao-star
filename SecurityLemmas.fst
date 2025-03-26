@@ -43,7 +43,7 @@ val attacker_only_derives_public_values_:
     (requires (valid_trace pr h /\ later_than (trace_len h) i))
     (ensures (forall t. Att.attacker_can_derive i steps t ==> is_publishable pr.global_usage i t))
 
-#push-options "--z3rlimit 50"
+#push-options "--z3rlimit 100"
 let rec attacker_only_derives_public_values_ pr h i steps =
   if steps = 0 then (
         strings_are_publishable_forall pr.global_usage;

@@ -197,6 +197,7 @@ let pk #p #i #l sk = C.pk sk
 let pk_lemma #p #i #l sk = ()
 let sk_label_lemma pr i t l = ()
 
+#push-options "--z3rlimit 25"
 let pke_enc #pr #i #l k n msg =
   let c = C.pke_enc k n msg in
   assert (is_valid pr i k);
@@ -209,7 +210,7 @@ let pke_enc #pr #i #l k n msg =
   assert (is_valid pr i c);
   assert (get_label pr.key_usages c == public);
   c
-
+#pop-options
 
 let pke_enc_lemma #pr #i k n msg = ()
 
@@ -224,7 +225,7 @@ let pke_dec_lemma #i #l k c = ()
 let aead_enc #pr #i #l k iv m ad = C.aead_enc k iv m ad
 let aead_enc_lemma #pr #i #l k iv m ad = ()
 
-#push-options "--z3rlimit 25"
+#push-options "--z3rlimit 100"
 let aead_dec #pr #i #l k iv c ad =
   match C.aead_dec k iv c ad with
   | Success p -> can_flow_transitive i (get_label pr.key_usages p) public l; Success p
@@ -250,7 +251,9 @@ let verify_mac_lemma #pr #i #l #l' k m t = ()
 let hash #pr #i #l m = C.hash m
 let hash_lemma #pr #i #l m = ()
 
+#push-options "--z3rlimit 50"
 let extract #pr #i #l #l' k salt = C.extract k salt
+#pop-options
 let extract_lemma #pr #i #l #l' k salt = ()
 
 let expand #pr #i #l #l' k info = C.expand k info 
@@ -261,7 +264,7 @@ let dh_pk_lemma #pr #i #l sk = ()
 let dh_key_label_lemma pr i b = ()
 let dh_private_key_cannot_be_split b = concat_split_lemma b
  
-#push-options "--z3rlimit 25"
+#push-options "--z3rlimit 50"
 let dh #pr #i #l sk pk =
     dh_key_label_lemma pr i pk;
     let k = C.dh sk pk in
@@ -304,6 +307,7 @@ let expand_value_publishable_if_secrets_are_publishable_forall c = ()
 let extract_value_publishable_if_secrets_are_publishable_forall c = ()
 let hash_value_publishable_if_message_is_publishable_forall c = ()
 let dh_public_key_is_publishable_if_private_key_is_publishable_forall c = ()
+#pop-options
 #push-options "--z3rlimit 15"
 let dh_is_publishable_if_keys_are_publishable_forall c = ()
 let dh_is_publishable_if_private_and_public_keys_are_publishable_forall c = ()

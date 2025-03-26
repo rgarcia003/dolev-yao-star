@@ -26,7 +26,7 @@ FSTAR_FLAGS = --cmi \
   --already_cached "+Prims +FStar +LowStar +C +Spec.Loops +TestLib" \
   $(addprefix --include ,$(FSTAR_INCLUDE_DIRS))
 
-FSTAR = $(FSTAR_HOME)/bin/fstar.exe $(FSTAR_FLAGS) $(OTHERFLAGS)
+FSTAR = $(FSTAR_HOME)/bin/fstar.exe $(FSTAR_FLAGS) $(OTHERFLAGS) #--z3version 4.13.3
 
 ENABLE_HINTS = --use_hints --use_hint_hashes --record_hints # --query_stats
 
