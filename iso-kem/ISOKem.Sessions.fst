@@ -66,7 +66,7 @@ let serialize_valid_session_st i p si vi st =
 #push-options "--z3rlimit 100"
 let parse_valid_serialize_session_st_lemma i p si vi ss =
    match ss with
-   |InitiatorSentMsg1 b x -> ()
+   |InitiatorSentMsg1 b x -> A.can_flow_transitive i (A.get_label isokem_key_usages x) (readers [P p]) (readers [V p si vi])
    |ResponderSentMsg2 a gx gy k -> assert (includes_ids [P p] [V p si vi]);
      A.can_flow_transitive i (A.get_label isokem_key_usages k) (readers [P p]) (readers [V p si vi])
    |InitiatorSentMsg3 b gx gy k -> ()

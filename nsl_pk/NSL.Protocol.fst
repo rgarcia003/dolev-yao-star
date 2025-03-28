@@ -102,7 +102,7 @@ let n_b_pred i a b n_a n_b :prop =
 	  (did_event_occur_before i b (respond a b n_a n_b)) /\
 	    was_rand_generated_before i n_b (readers [P a;P b]) (nonce_usage "NSL.nonce"))
 
-#push-options "--z3rlimit 25"
+#push-options "--z3rlimit 50"
 let initiator_receive_msg_2_helper (i:nat) (a:principal) (b:principal) (c_msg2:msg i public)
 				   (ska:priv_key i a) (n_a:ns_nonce i a b) :
     LCrypto (msg i (readers [P a])) (pki nsl) (requires (fun _ -> True)) (ensures (fun t0 (n_b) t1 -> n_b_pred i a b n_a n_b))

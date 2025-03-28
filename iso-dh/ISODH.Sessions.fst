@@ -16,9 +16,11 @@ let parse_session_st (serialized_session:bytes) : result session_st =
   | Some s -> Success s
   | None -> Error "could not parse session"
 
+#push-options "--z3rlimit 25"
 let serialize_valid_session_st i p si vi st =
   serialize_wf_lemma session_st (ComparseGlue.is_msg isodh_global_usage (readers [V p si vi]) i) st;
   (serialize session_st st <: bytes)
+#pop-options
 
 let parse_valid_serialize_session_st_lemma i p si vi ss =
   parse_serialize_inv_lemma #bytes session_st ss
